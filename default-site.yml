@@ -1,6 +1,6 @@
 ---
 site:
-  title: Red Hat OpenShift Security Roadshow 
+  title: Advanced Cluster Security Demo
   url: https://redhat-scholars.github.io/course-template
   start_page: modules::index.adoc
 
