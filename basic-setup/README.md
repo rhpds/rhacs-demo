@@ -116,7 +116,7 @@ The following scripts are executed in numerical order:
 | Script | Description | Requires Token | Auto-Run |
 |--------|-------------|----------------|----------|
 | `install.sh` | Main orchestrator - installs roxctl, generates token, runs scripts 01-07 | N/A | N/A |
-| `01-verify-rhacs-install.sh` | Verifies RHACS installation, checks version, ensures TLS encryption | No | ✓ |
+| `01-verify-rhacs-install.sh` | Verifies RHACS installation, ensures TLS encryption, checks/updates version (e.g. 4.10), then ensures Console plugin is enabled | No | ✓ |
 | `02-compliance-operator-install.sh` | Installs Red Hat Compliance Operator for compliance scanning | No | ✓ |
 | `03-deploy-applications.sh` | Deploys demo applications from mfosterrox/demo-applications repo | No | ✓ |
 | `04-configure-rhacs-settings.sh` | Configures RHACS via API (metrics, retention, platform components) | **Yes** | ✓ |
@@ -193,6 +193,9 @@ This optional script configures Central with a custom TLS certificate and passth
 - Let's Encrypt rate limits and best practices
 
 ## Requirements
+
+### RHACS Operator installation
+When installing the **RHACS Operator** from OperatorHub (OpenShift Console → Operators → OperatorHub → Red Hat Advanced Cluster Security for Kubernetes), on the **Install Operator** page ensure that the **Console plugin** option is set to **Enable**. This enables the RHACS plugin in the OpenShift web console. The basic-setup script `01-verify-rhacs-install.sh` updates RHACS to the target version (e.g. 4.10) first, then ensures the Console plugin is enabled.
 
 ### Cluster Access
 - Must be logged into OpenShift cluster via `oc login`
