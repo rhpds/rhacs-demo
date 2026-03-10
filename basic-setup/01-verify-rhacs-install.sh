@@ -30,6 +30,7 @@ print_step() {
 RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
 RHACS_ROUTE_NAME="${RHACS_ROUTE_NAME:-central}"
 RHACS_OPERATOR_NAMESPACE="${RHACS_OPERATOR_NAMESPACE:-rhacs-operator}"
+
 # Default target version when not set (script will upgrade to this version)
 RHACS_VERSION="${RHACS_VERSION:-4.10}"
 
@@ -46,34 +47,14 @@ check_resource_exists() {
     fi
 }
 
-# Function to get RHACS operator version
-get_operator_version() {
-    oc get subscription -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.items[?(@.spec.name=="rhacs-operator")].status.currentCSV}' 2>/dev/null | grep -oP 'rhacs-operator\.v\K[0-9.]+' || echo ""
+# Get RHACS version from central deployment label app.kubernetes.io/version (e.g. Helm-managed installs).
+get_version_from_deployment_label() {
+    oc get deployment central -n "${RHACS_NAMESPACE}" -o jsonpath='{.metadata.labels.app\.kubernetes\.io/version}' 2>/dev/null || echo ""
 }
 
-# Function to get installed RHACS version
+# Function to get installed RHACS version (from deployment label)
 get_installed_version() {
-    local version=""
-    
-    # Try to get version from central resource status
-    version=$(oc get central -n "${RHACS_NAMESPACE}" -o jsonpath='{.items[0].status.conditions[?(@.type=="Release")].message}' 2>/dev/null | grep -oP 'version \K[0-9.]+')
-    
-    # If not found, try from Central spec.central.image
-    if [ -z "${version}" ]; then
-        version=$(oc get central -n "${RHACS_NAMESPACE}" -o jsonpath='{.items[0].spec.central.image}' 2>/dev/null | grep -oP ':\K[0-9]+\.[0-9]+\.[0-9]+')
-    fi
-    
-    # If not found, try from deployment image tag (looking for semantic version pattern)
-    if [ -z "${version}" ]; then
-        version=$(oc get deployment central -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | grep -oP ':\K[0-9]+\.[0-9]+\.[0-9]+')
-    fi
-    
-    # If still not found and operator CSV exists, use operator version as installed version
-    if [ -z "${version}" ]; then
-        version=$(get_latest_available_version)
-    fi
-    
-    echo "${version}"
+    get_version_from_deployment_label
 }
 
 # Function to get current image tag from deployment
@@ -81,25 +62,12 @@ get_current_image_tag() {
     oc get deployment central -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | grep -oP ':[^:]+$' | sed 's/^://'
 }
 
-# Function to get latest available RHACS version from operator
+# Function to get latest available RHACS version (from deployment label)
 get_latest_available_version() {
-    local version=""
-    
-    # Try to get version from CSV (most reliable)
-    version=$(oc get csv -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.items[?(@.metadata.name=~"rhacs-operator.*")].spec.version}' 2>/dev/null | head -1)
-    
-    # If not found, try from CSV name
-    if [ -z "${version}" ]; then
-        version=$(oc get csv -n "${RHACS_OPERATOR_NAMESPACE}" -o name 2>/dev/null | grep rhacs-operator | head -1 | grep -oP 'rhacs-operator\.v\K[0-9.]+')
-    fi
-    
-    # If still not found, try from subscription
-    if [ -z "${version}" ]; then
-        version=$(oc get subscription -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.items[?(@.spec.name=="rhacs-operator")].status.installedCSV}' 2>/dev/null | grep -oP 'rhacs-operator\.v\K[0-9.]+')
-    fi
-    
-    echo "${version}"
+    get_version_from_deployment_label
 }
+
+
 
 # Function to verify RHACS installation
 verify_rhacs_installation() {
@@ -217,36 +185,53 @@ verify_route_encryption() {
     return 0
 }
 
-# Ensure operator subscription is on a channel that provides the target version (e.g. 4.10 -> stable-4.10).
-# Call this first so the operator can install the target version; otherwise it may stay on 4.9.
-ensure_subscription_channel_for_version() {
+# Get the RHACS CSV name in RHACS_NAMESPACE (e.g. rhacs-operator.v4.9.3). Empty if not found.
+get_rhacs_csv_name() {
+    oc get csv -n "${RHACS_NAMESPACE}" -o name 2>/dev/null | grep rhacs-operator | head -1 | sed 's|.*/||' || echo ""
+}
+
+# Ensure CSV deploy details are updated to target version (no subscriptions).
+# Patches only deployment container images in the CSV to the target version tag.
+ensure_csv_deploy_version() {
     local target_version=$1
-    local desired_channel
-    desired_channel=$(get_channel_for_version "${target_version}")
-    local sub_name
-    sub_name=$(oc get subscription -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.items[?(@.spec.name=="rhacs-operator")].metadata.name}' 2>/dev/null || echo "")
-    if [ -z "${sub_name}" ]; then
+    local csv_name
+    csv_name=$(get_rhacs_csv_name)
+    if [ -z "${csv_name}" ]; then
+        print_warn "No RHACS CSV found in namespace ${RHACS_NAMESPACE}; skipping CSV deploy update"
         return 0
     fi
-    local current_channel
-    current_channel=$(oc get subscription "${sub_name}" -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.spec.channel}' 2>/dev/null || echo "")
-    if [ "${current_channel}" = "${desired_channel}" ]; then
-        print_info "Operator subscription already on channel: ${desired_channel}"
-        return 0
-    fi
-    print_step "Setting operator subscription to channel ${desired_channel} (for RHACS ${target_version})..."
-    if ! oc patch subscription "${sub_name}" -n "${RHACS_OPERATOR_NAMESPACE}" --type=json -p="[{\"op\":\"replace\",\"path\":\"/spec/channel\",\"value\":\"${desired_channel}\"}]" 2>/dev/null; then
-        print_warn "Could not set subscription channel to ${desired_channel}"
+    print_step "Updating CSV ${csv_name} deploy details to version ${target_version}..."
+    if ! command -v jq &>/dev/null; then
+        print_warn "jq not found; cannot patch CSV deploy details. Install jq or update the CSV manually."
         return 1
     fi
-    print_info "Waiting for operator to reconcile to ${desired_channel}, 60s..."
-    sleep 60
-    return 0
+    local csv_json
+    csv_json=$(oc get csv "${csv_name}" -n "${RHACS_NAMESPACE}" -o json 2>/dev/null) || true
+    if [ -z "${csv_json}" ]; then
+        print_error "Failed to get CSV ${csv_name}"
+        return 1
+    fi
+    local patched
+    patched=$(echo "${csv_json}" | jq --arg tv "${target_version}" '
+        del(.status) |
+        .spec.install.spec.deployments |= (map(
+            .spec.template.spec.containers |= (map(
+                if .image then .image = ((.image | split(":")[0]) + ":" + $tv) else . end
+            ))
+        ))
+    ')
+    if echo "${patched}" | oc apply -f - -n "${RHACS_NAMESPACE}" 2>/dev/null; then
+        print_info "CSV deploy details updated; waiting 45s for rollout..."
+        sleep 45
+        return 0
+    fi
+    print_warn "Could not apply CSV patch"
+    return 1
 }
 
 # Function to check and update RHACS version
 # Uses RHACS_VERSION as target (default 4.10). Only reports "up to date" when installed equals target.
-# Ensures subscription is on the correct channel (e.g. stable-4.10) first so 4.10 is available.
+# Uses CSV deploy-details update when there are no subscriptions.
 check_and_update_version() {
     print_step "Checking RHACS version..."
     
@@ -254,9 +239,8 @@ check_and_update_version() {
     local target_version="${RHACS_VERSION:-4.10}"
     print_info "Target version: ${target_version}"
     
-    # First: ensure subscription is on a channel that provides the target (e.g. 4.9 -> stable-4.9, 4.10 -> stable-4.10).
-    # Otherwise the operator only has 4.9 and we can't upgrade to 4.10.
-    ensure_subscription_channel_for_version "${target_version}" || true
+    # Ensure CSV deploy details are updated to target version (no subscription required)
+    ensure_csv_deploy_version "${target_version}" || true
     
     # Get current installed version (after possible channel switch)
     local installed_version=$(get_installed_version)
@@ -340,31 +324,9 @@ update_rhacs_version() {
     if [ -n "${central_cr_name}" ]; then
         print_info "Updating Central resource (${central_cr_name})..."
         
-        # Ensure operator subscription is on a channel that can provide target version,
-        # so the operator doesn't revert our image tag (e.g. 4.10 needs channel stable-4.10 or stable).
-        local desired_channel
-        desired_channel=$(get_channel_for_version "${target_version}")
-        local sub_name
-        sub_name=$(oc get subscription -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.items[?(@.spec.name=="rhacs-operator")].metadata.name}' 2>/dev/null || echo "")
-        if [ -n "${sub_name}" ]; then
-            local current_channel
-            current_channel=$(oc get subscription "${sub_name}" -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.spec.channel}' 2>/dev/null || echo "")
-            if [ "${current_channel}" != "${desired_channel}" ]; then
-                print_info "Switching operator channel: ${current_channel:-unknown} -> ${desired_channel} for version ${target_version}"
-                if oc patch subscription "${sub_name}" -n "${RHACS_OPERATOR_NAMESPACE}" --type=json -p="[{\"op\":\"replace\",\"path\":\"/spec/channel\",\"value\":\"${desired_channel}\"}]" 2>/dev/null; then
-                    print_info "Waiting for operator to reconcile, 30s..."
-                    sleep 30
-                else
-                    print_warn "Could not set channel to ${desired_channel}; continuing (operator may revert image if catalog lacks ${target_version})"
-                fi
-            fi
-        fi
-        
         # Get current Central spec
         local current_image
         current_image=$(oc get central "${central_cr_name}" -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.central.image}' 2>/dev/null || echo "")
-        local current_image
-        current_image=$(oc get central central -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.central.image}' 2>/dev/null || echo "")
         
         if [ -n "${current_image}" ]; then
             # Update the image tag
@@ -381,8 +343,8 @@ update_rhacs_version() {
                 return 1
             }
         else
-            # No image in spec: try updating via operator channel only (already set above)
-            print_info "Central has no custom image; operator should deploy ${target_version} from channel ${desired_channel}"
+            # No image in spec: update via CSV deploy details or leave to operator
+            print_info "Central has no custom image; ensure_csv_deploy_version may have updated CSV to ${target_version}"
         fi
         
         print_info "Waiting for update to complete..."
@@ -392,32 +354,15 @@ update_rhacs_version() {
         
         print_info "✓ RHACS update initiated"
     else
-        # No Central CR: update subscription channel and let operator rollout
-        print_info "Central CR not found in namespace ${RHACS_NAMESPACE}; updating operator subscription channel and waiting for rollout..."
-        local desired_channel
-        desired_channel=$(get_channel_for_version "${target_version}")
-        local sub_name
-        sub_name=$(oc get subscription -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.items[?(@.spec.name=="rhacs-operator")].metadata.name}' 2>/dev/null || echo "")
-        if [ -z "${sub_name}" ]; then
-            print_error "No RHACS operator subscription found in ${RHACS_OPERATOR_NAMESPACE}. Cannot update via subscription."
+        # No Central CR: update CSV deploy details and wait for rollout
+        print_info "Central CR not found in namespace ${RHACS_NAMESPACE}; updating CSV deploy details to ${target_version}..."
+        if ! ensure_csv_deploy_version "${target_version}"; then
+            print_error "Failed to update CSV deploy details"
             return 1
-        fi
-        local current_channel
-        current_channel=$(oc get subscription "${sub_name}" -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.spec.channel}' 2>/dev/null || echo "")
-        if [ "${current_channel}" != "${desired_channel}" ]; then
-            print_info "Switching operator channel: ${current_channel:-unknown} -> ${desired_channel} for version ${target_version}"
-            if ! oc patch subscription "${sub_name}" -n "${RHACS_OPERATOR_NAMESPACE}" --type=json -p="[{\"op\":\"replace\",\"path\":\"/spec/channel\",\"value\":\"${desired_channel}\"}]" 2>/dev/null; then
-                print_error "Failed to update subscription channel to ${desired_channel}"
-                return 1
-            fi
-            print_info "Waiting for operator to reconcile, 45s..."
-            sleep 45
-        else
-            print_info "Subscription already on channel ${desired_channel}; operator should rollout ${target_version}."
         fi
         print_info "Waiting for deployment rollout to complete..."
         oc rollout status deployment/central -n "${RHACS_NAMESPACE}" --timeout=600s || {
-            print_warn "Rollout may still be in progress. Check: oc get pods -n ${RHACS_NAMESPACE} && oc get subscription -n ${RHACS_OPERATOR_NAMESPACE}"
+            print_warn "Rollout may still be in progress. Check: oc get pods -n ${RHACS_NAMESPACE}"
         }
         print_info "✓ RHACS update initiated"
     fi
