@@ -231,7 +231,7 @@ ensure_csv_deploy_version() {
 
 # Function to check and update RHACS version
 # Uses RHACS_VERSION as target (default 4.10). Only reports "up to date" when installed equals target.
-# Uses CSV deploy-details update when there are no subscriptions.
+# Uses subscription channel update when subscription exists; otherwise falls back to CSV deploy-details.
 check_and_update_version() {
     print_step "Checking RHACS version..."
     
@@ -239,8 +239,12 @@ check_and_update_version() {
     local target_version="${RHACS_VERSION:-4.10}"
     print_info "Target version: ${target_version}"
     
-    # Ensure CSV deploy details are updated to target version (no subscription required)
-    ensure_csv_deploy_version "${target_version}" || true
+    # Prefer subscription channel update (subscriptions.operators.coreos.com); fall back to CSV when no subscription
+    if [ -n "$(get_rhacs_subscription_name)" ]; then
+        ensure_subscription_channel_for_version "${target_version}" || true
+    else
+        ensure_csv_deploy_version "${target_version}" || true
+    fi
     
     # Get current installed version (after possible channel switch)
     local installed_version=$(get_installed_version)
@@ -292,17 +296,51 @@ check_and_update_version() {
     update_rhacs_version "${target_version}"
 }
 
-# Map target minor version to operator channel (e.g. 4.10 -> stable-4.10)
-# So the operator can install that version from the catalog.
+# Map target minor version to operator channel (e.g. 4.10 -> rhacs-4.10)
+# Red Hat catalog uses rhacs-4.x channel names.
 get_channel_for_version() {
     local ver=$1
     local major_minor=""
     if [[ "${ver}" =~ ^([0-9]+\.[0-9]+) ]]; then
         major_minor="${BASH_REMATCH[1]}"
-        echo "stable-${major_minor}"
+        echo "rhacs-${major_minor}"
     else
-        echo "stable"
+        echo "rhacs-4.10"
     fi
+}
+
+# Get RHACS subscription name using subscriptions.operators.coreos.com (required for oc to find it).
+# Returns subscription name (e.g. rhacs-operator) or empty if not found.
+get_rhacs_subscription_name() {
+    oc get subscriptions.operators.coreos.com -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.items[?(@.spec.name=="rhacs-operator")].metadata.name}' 2>/dev/null || echo ""
+}
+
+# Ensure operator subscription channel is set for target version (e.g. 4.10 -> rhacs-4.10).
+# Uses subscriptions.operators.coreos.com - the correct resource name for oc.
+ensure_subscription_channel_for_version() {
+    local target_version=$1
+    local desired_channel
+    desired_channel=$(get_channel_for_version "${target_version}")
+    local sub_name
+    sub_name=$(get_rhacs_subscription_name)
+    if [ -z "${sub_name}" ]; then
+        print_info "No RHACS subscription found in ${RHACS_OPERATOR_NAMESPACE}; skipping subscription channel update"
+        return 0
+    fi
+    local current_channel
+    current_channel=$(oc get subscriptions.operators.coreos.com "${sub_name}" -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.spec.channel}' 2>/dev/null || echo "")
+    if [ "${current_channel}" = "${desired_channel}" ]; then
+        print_info "Subscription already on channel: ${desired_channel}"
+        return 0
+    fi
+    print_step "Setting subscription channel: ${current_channel:-unknown} -> ${desired_channel} for version ${target_version}..."
+    if ! oc patch subscriptions.operators.coreos.com "${sub_name}" -n "${RHACS_OPERATOR_NAMESPACE}" --type=json -p="[{\"op\":\"replace\",\"path\":\"/spec/channel\",\"value\":\"${desired_channel}\"}]" 2>/dev/null; then
+        print_warn "Could not set subscription channel to ${desired_channel}"
+        return 1
+    fi
+    print_info "Waiting for operator to reconcile to ${desired_channel}, 60s..."
+    sleep 60
+    return 0
 }
 
 # Get the name of the Central CR in RHACS_NAMESPACE (e.g. "central" or "stackrox-central-services").
@@ -323,6 +361,9 @@ update_rhacs_version() {
     
     if [ -n "${central_cr_name}" ]; then
         print_info "Updating Central resource (${central_cr_name})..."
+        
+        # Ensure subscription channel is set for target version (so operator can provide it)
+        ensure_subscription_channel_for_version "${target_version}" || true
         
         # Get current Central spec
         local current_image
@@ -354,11 +395,19 @@ update_rhacs_version() {
         
         print_info "✓ RHACS update initiated"
     else
-        # No Central CR: update CSV deploy details and wait for rollout
-        print_info "Central CR not found in namespace ${RHACS_NAMESPACE}; updating CSV deploy details to ${target_version}..."
-        if ! ensure_csv_deploy_version "${target_version}"; then
-            print_error "Failed to update CSV deploy details"
-            return 1
+        # No Central CR: try subscription channel first, then CSV deploy details
+        if [ -n "$(get_rhacs_subscription_name)" ]; then
+            print_info "Central CR not found; updating subscription channel to ${target_version}..."
+            if ! ensure_subscription_channel_for_version "${target_version}"; then
+                print_error "Failed to update subscription channel"
+                return 1
+            fi
+        else
+            print_info "Central CR not found; updating CSV deploy details to ${target_version}..."
+            if ! ensure_csv_deploy_version "${target_version}"; then
+                print_error "Failed to update CSV deploy details"
+                return 1
+            fi
         fi
         print_info "Waiting for deployment rollout to complete..."
         oc rollout status deployment/central -n "${RHACS_NAMESPACE}" --timeout=600s || {
