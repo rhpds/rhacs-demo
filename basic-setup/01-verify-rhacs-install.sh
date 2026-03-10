@@ -321,6 +321,12 @@ get_channel_for_version() {
     fi
 }
 
+# Get the name of the Central CR in RHACS_NAMESPACE (e.g. "central" or "stackrox-central-services").
+# Empty if no Central CR exists.
+get_central_cr_name() {
+    oc get central -n "${RHACS_NAMESPACE}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo ""
+}
+
 # Function to update RHACS version
 update_rhacs_version() {
     local target_version=$1
