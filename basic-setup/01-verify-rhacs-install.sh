@@ -239,7 +239,7 @@ ensure_subscription_channel_for_version() {
         print_warn "Could not set subscription channel to ${desired_channel}"
         return 1
     fi
-    print_info "Waiting for operator to reconcile to ${desired_channel} (60s)..."
+    print_info "Waiting for operator to reconcile to ${desired_channel}, 60s..."
     sleep 60
     return 0
 }
@@ -344,9 +344,9 @@ update_rhacs_version() {
             local current_channel
             current_channel=$(oc get subscription "${sub_name}" -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.spec.channel}' 2>/dev/null || echo "")
             if [ "${current_channel}" != "${desired_channel}" ]; then
-                print_info "Switching operator channel: ${current_channel:-unknown} -> ${desired_channel} (for version ${target_version})"
+                print_info "Switching operator channel: ${current_channel:-unknown} -> ${desired_channel} for version ${target_version}"
                 if oc patch subscription "${sub_name}" -n "${RHACS_OPERATOR_NAMESPACE}" --type=json -p="[{\"op\":\"replace\",\"path\":\"/spec/channel\",\"value\":\"${desired_channel}\"}]" 2>/dev/null; then
-                    print_info "Waiting for operator to reconcile (30s)..."
+                    print_info "Waiting for operator to reconcile, 30s..."
                     sleep 30
                 else
                     print_warn "Could not set channel to ${desired_channel}; continuing (operator may revert image if catalog lacks ${target_version})"
@@ -365,9 +365,6 @@ update_rhacs_version() {
             local image_repo
             image_repo=$(echo "${current_image}" | sed 's/:.*//')
             oc patch central "${central_cr_name}" -n "${RHACS_NAMESPACE}" --type=json -p="[
-            local image_repo
-            image_repo=$(echo "${current_image}" | sed 's/:.*//')
-            oc patch central central -n "${RHACS_NAMESPACE}" --type=json -p="[
                 {
                     \"op\": \"replace\",
                     \"path\": \"/spec/central/image\",
@@ -384,28 +381,30 @@ update_rhacs_version() {
         
         print_info "Waiting for update to complete..."
         oc wait --for=condition=ready --timeout=600s "central/${central_cr_name}" -n "${RHACS_NAMESPACE}" || {
-            print_warn "Update may still be in progress. Please check manually."
-        oc wait --for=condition=ready --timeout=600s central/central -n "${RHACS_NAMESPACE}" 2>/dev/null || {
             print_warn "Update may still be in progress. Check: oc get central -n ${RHACS_NAMESPACE} && oc get pods -n ${RHACS_NAMESPACE}"
         }
         
         print_info "✓ RHACS update initiated"
     else
-        # For non-operator installations, try updating the deployment directly
-        print_info "Central resource not found, attempting to update deployment directly..."
-        oc set image deployment/central -n "${RHACS_NAMESPACE}" central="quay.io/rhacs-eng/central:${target_version}" || {
-            print_error "Failed to update deployment image"
+        # No Central CR: update subscription channel and let operator rollout
+        print_info "Central CR not found in namespace ${RHACS_NAMESPACE}; updating operator subscription channel and waiting for rollout..."
+        local desired_channel
+        desired_channel=$(get_channel_for_version "${target_version}")
+        local sub_name
+        sub_name=$(oc get subscription -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.items[?(@.spec.name=="rhacs-operator")].metadata.name}' 2>/dev/null || echo "")
+        if [ -z "${sub_name}" ]; then
+            print_error "No RHACS operator subscription found in ${RHACS_OPERATOR_NAMESPACE}. Cannot update via subscription."
             return 1
         fi
         local current_channel
         current_channel=$(oc get subscription "${sub_name}" -n "${RHACS_OPERATOR_NAMESPACE}" -o jsonpath='{.spec.channel}' 2>/dev/null || echo "")
         if [ "${current_channel}" != "${desired_channel}" ]; then
-            print_info "Switching operator channel: ${current_channel:-unknown} -> ${desired_channel} (for version ${target_version})"
+            print_info "Switching operator channel: ${current_channel:-unknown} -> ${desired_channel} for version ${target_version}"
             if ! oc patch subscription "${sub_name}" -n "${RHACS_OPERATOR_NAMESPACE}" --type=json -p="[{\"op\":\"replace\",\"path\":\"/spec/channel\",\"value\":\"${desired_channel}\"}]" 2>/dev/null; then
                 print_error "Failed to update subscription channel to ${desired_channel}"
                 return 1
             fi
-            print_info "Waiting for operator to reconcile (45s)..."
+            print_info "Waiting for operator to reconcile, 45s..."
             sleep 45
         else
             print_info "Subscription already on channel ${desired_channel}; operator should rollout ${target_version}."
@@ -459,7 +458,7 @@ ensure_rhacs_console_plugin_enabled() {
     fi
 
     if [ -z "${plugin_name}" ]; then
-        print_warn "RHACS ConsolePlugin not found (operator may not register a console plugin in this version); skipping"
+        print_warn "RHACS ConsolePlugin not found; operator may not register a console plugin in this version; skipping"
         return 0
     fi
 
@@ -483,10 +482,10 @@ ensure_rhacs_console_plugin_enabled() {
         new_plugins_json="${current_json%]},\"${plugin_name}\"]"
     fi
 
-    if oc patch consoles.operator.openshift.io cluster --type=merge -p "{\"spec\":{\"plugins\":${new_plugins_json}}}" 2>/dev/null; then
+    if oc patch consoles.operator.openshift.io cluster --type=merge -p '{"spec":{"plugins":'"${new_plugins_json}"'}}' 2>/dev/null; then
         print_info "✓ RHACS Console plugin '${plugin_name}' enabled in OpenShift Console"
     else
-        print_warn "Could not patch Console to enable plugin '${plugin_name}' (may require cluster-admin)"
+        print_warn "Could not patch Console to enable plugin '${plugin_name}'; may require cluster-admin"
     fi
 }
 
