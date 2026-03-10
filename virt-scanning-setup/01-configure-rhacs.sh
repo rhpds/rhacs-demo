@@ -261,7 +261,8 @@ main() {
         exit 1
     fi
     
-    if ! oc get csv -n ${CNV_NAMESPACE} 2>/dev/null | grep -q "OpenShift Virtualization.*Succeeded"; then
+    # Check for OpenShift Virtualization (kubevirt-hyperconverged) CSV in Succeeded phase
+    if ! oc get csv -n ${CNV_NAMESPACE} 2>/dev/null | grep -E "kubevirt-hyperconverged|OpenShift Virtualization" | grep -q Succeeded; then
         print_error "OpenShift Virtualization operator not ready"
         exit 1
     fi

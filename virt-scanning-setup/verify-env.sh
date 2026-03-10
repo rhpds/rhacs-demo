@@ -55,7 +55,7 @@ check_virtualization() {
         return 1
     fi
     
-    if ! oc get csv -n ${CNV_NAMESPACE} 2>/dev/null | grep -q "OpenShift Virtualization.*Succeeded"; then
+    if ! oc get csv -n ${CNV_NAMESPACE} 2>/dev/null | grep -E "kubevirt-hyperconverged|OpenShift Virtualization" | grep -q Succeeded; then
         print_fail "OpenShift Virtualization operator not ready"
         FAILED_CHECKS=$((FAILED_CHECKS + 1))
         return 1
