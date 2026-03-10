@@ -266,20 +266,22 @@ check_and_update_version() {
         print_info "Latest available version from operator: ${latest_version}"
     fi
     
-    # Already at target
-    if [ "${current_image_tag}" = "${target_version}" ]; then
-        print_info "✓ RHACS deployment is already using image tag ${target_version}"
-        return 0
-    fi
-    if [ "${installed_version}" = "${target_version}" ] && [ "${installed_version}" != "unknown" ]; then
-        print_info "✓ RHACS is already at target version ${target_version}"
+    # Extract major.minor for comparison (4.10 and 4.10.0 are same minor = stable)
+    local target_major_minor="${target_version}"
+    [[ "${target_version}" =~ ^([0-9]+\.[0-9]+) ]] && target_major_minor="${BASH_REMATCH[1]}"
+    local installed_major_minor="${installed_version}"
+    [[ "${installed_version}" =~ ^([0-9]+\.[0-9]+) ]] && installed_major_minor="${BASH_REMATCH[1]}"
+    
+    # Already at target: same minor = stable (4.10.x follows 4.10 channel)
+    if [ "${installed_version}" != "unknown" ] && [ "${target_major_minor}" = "${installed_major_minor}" ]; then
+        print_info "✓ RHACS is already on ${target_version} channel (installed: ${installed_version})"
         return 0
     fi
     
-    # Downgrade check
+    # Downgrade check: only when target minor < installed minor (e.g. 4.9 vs 4.10.0)
     if [ "${installed_version}" != "unknown" ] && [ "${target_version}" != "unknown" ]; then
-        if [ "$(printf '%s\n' "${target_version}" "${installed_version}" | sort -V | head -n1)" = "${target_version}" ] && \
-           [ "${target_version}" != "${installed_version}" ]; then
+        if [ "$(printf '%s\n' "${target_major_minor}" "${installed_major_minor}" | sort -V | head -n1)" = "${target_major_minor}" ] && \
+           [ "${target_major_minor}" != "${installed_major_minor}" ]; then
             print_warn "⚠️  Warning: Target version ${target_version} is older than installed version ${installed_version}"
             print_warn "This would be a DOWNGRADE!"
             if [ "${RHACS_FORCE_DOWNGRADE:-false}" != "true" ]; then
