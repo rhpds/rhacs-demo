@@ -120,9 +120,9 @@ generate_cloudinit() {
     
     # Collect SSH public keys for virtctl ssh (enables key-based login)
     local ssh_key_file=""
-    if [ -n "${VM_SSH_PUBKEY}" ]; then
+    if [ -n "${VM_SSH_PUBKEY:-}" ]; then
         ssh_key_file="/tmp/vm_ssh_pubkey_$$"
-        echo "${VM_SSH_PUBKEY}" > "${ssh_key_file}"
+        echo "${VM_SSH_PUBKEY:-}" > "${ssh_key_file}"
     elif [ -f "${HOME}/.ssh/id_ed25519.pub" ]; then
         ssh_key_file="${HOME}/.ssh/id_ed25519.pub"
     elif [ -f "${HOME}/.ssh/id_rsa.pub" ]; then
@@ -438,7 +438,7 @@ deploy_vm() {
     # Create cloud-init secret
     local secret_name="cloudinit-${vm_profile}"
     print_info "Creating cloud-init secret: ${secret_name}"
-    if [ -n "${VM_SSH_PUBKEY}" ] || [ -f "${HOME}/.ssh/id_ed25519.pub" ] || [ -f "${HOME}/.ssh/id_rsa.pub" ]; then
+    if [ -n "${VM_SSH_PUBKEY:-}" ] || [ -f "${HOME}/.ssh/id_ed25519.pub" ] || [ -f "${HOME}/.ssh/id_rsa.pub" ]; then
         print_info "Injecting SSH public key for virtctl ssh access"
     fi
     
