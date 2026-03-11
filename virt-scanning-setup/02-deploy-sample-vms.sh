@@ -32,6 +32,10 @@ RHEL_ORG="${RHEL_ORG:-}"
 RHEL_ACTIVATION_KEY="${RHEL_ACTIVATION_KEY:-}"
 SKIP_SUBSCRIPTION="${SKIP_SUBSCRIPTION:-false}"
 
+# SSH keys from bastion host for VM access (virtctl ssh)
+# Set VM_SSH_PUBKEY for raw key content, or VM_SSH_KEY_PATH for a key file
+VM_SSH_KEY_PATH="${VM_SSH_KEY_PATH:-}"
+
 # VM profiles with different package sets
 declare -A VM_PROFILES=(
     ["webserver"]="httpd nginx php php-mysqlnd mod_ssl mod_security"
@@ -108,6 +112,24 @@ check_prerequisites() {
         fi
     fi
     
+    # Check SSH public key exists (VMs use key-based auth only)
+    local ssh_key_file=""
+    if [ -n "${VM_SSH_PUBKEY:-}" ]; then
+        ssh_key_file="(VM_SSH_PUBKEY)"
+    elif [ -n "${VM_SSH_KEY_PATH:-}" ] && [ -f "${VM_SSH_KEY_PATH}" ]; then
+        ssh_key_file="${VM_SSH_KEY_PATH}"
+    elif [ -f "${HOME}/.ssh/id_ed25519.pub" ]; then
+        ssh_key_file="${HOME}/.ssh/id_ed25519.pub"
+    elif [ -f "${HOME}/.ssh/id_rsa.pub" ]; then
+        ssh_key_file="${HOME}/.ssh/id_rsa.pub"
+    fi
+    if [ -z "${ssh_key_file}" ]; then
+        print_error "No SSH public key found. VMs use key-based auth only (no password)."
+        print_info "Provide one of: VM_SSH_PUBKEY, VM_SSH_KEY_PATH, or ~/.ssh/id_ed25519.pub / id_rsa.pub"
+        return 1
+    fi
+    print_info "Using SSH key: ${ssh_key_file}"
+    
     print_info "✓ Prerequisites met"
 }
 
@@ -118,15 +140,23 @@ generate_cloudinit() {
     local vm_profile=$1
     local packages="${VM_PROFILES[$vm_profile]}"
     
-    # Collect SSH public keys for virtctl ssh (enables key-based login)
+    # Collect SSH public keys from bastion host for virtctl ssh (key-based login)
     local ssh_key_file=""
     if [ -n "${VM_SSH_PUBKEY:-}" ]; then
         ssh_key_file="/tmp/vm_ssh_pubkey_$$"
         echo "${VM_SSH_PUBKEY:-}" > "${ssh_key_file}"
+    elif [ -n "${VM_SSH_KEY_PATH:-}" ] && [ -f "${VM_SSH_KEY_PATH}" ]; then
+        ssh_key_file="${VM_SSH_KEY_PATH}"
     elif [ -f "${HOME}/.ssh/id_ed25519.pub" ]; then
         ssh_key_file="${HOME}/.ssh/id_ed25519.pub"
     elif [ -f "${HOME}/.ssh/id_rsa.pub" ]; then
         ssh_key_file="${HOME}/.ssh/id_rsa.pub"
+    fi
+    
+    if [ -z "${ssh_key_file}" ] || [ ! -f "${ssh_key_file}" ]; then
+        print_error "No SSH public key found. VMs use key-based auth only."
+        print_info "Provide one of: VM_SSH_PUBKEY, VM_SSH_KEY_PATH, or ~/.ssh/id_ed25519.pub / id_rsa.pub"
+        return 1
     fi
     
     # Start cloud-init
@@ -174,18 +204,11 @@ EOF
     # Continue with runcmd
     cat <<EOF
 runcmd:
-  # Enable PAM nullok so empty password works (RHEL disables this by default)
-  - |
-    authselect enable-feature with-nullok 2>/dev/null || \
-    for f in /etc/pam.d/system-auth /etc/pam.d/password-auth; do
-      [ -f "$f" ] && grep -q 'pam_unix.so' "$f" && ! grep -q 'nullok' "$f" && \
-        sed -i '/pam_unix\.so/s/pam_unix\.so/& nullok/' "$f"
-    done
-  # Remove password from cloud-user (passwordless login for console)
-  - passwd -d cloud-user
-  # Allow empty password for SSH (enables passwordless virtctl ssh when no key)
-  - sed -i 's/^#*PermitEmptyPasswords.*/PermitEmptyPasswords yes/' /etc/ssh/sshd_config
-  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+  # Configure SSH for key-based auth only (keys from bastion host)
+  - sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - grep -q '^PubkeyAuthentication' /etc/ssh/sshd_config || echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config
+  - grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config
   - systemctl restart sshd
   # Wait for network
   - until ping -c 1 8.8.8.8 &> /dev/null; do sleep 2; done
@@ -444,9 +467,7 @@ deploy_vm() {
     # Create cloud-init secret
     local secret_name="cloudinit-${vm_profile}"
     print_info "Creating cloud-init secret: ${secret_name}"
-    if [ -n "${VM_SSH_PUBKEY:-}" ] || [ -f "${HOME}/.ssh/id_ed25519.pub" ] || [ -f "${HOME}/.ssh/id_rsa.pub" ]; then
-        print_info "Injecting SSH public key for virtctl ssh access"
-    fi
+    print_info "Injecting bastion SSH public key for virtctl ssh access"
     
     local cloudinit_content
     cloudinit_content=$(generate_cloudinit "${vm_profile}")
