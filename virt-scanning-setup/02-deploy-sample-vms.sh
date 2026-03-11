@@ -124,9 +124,13 @@ check_prerequisites() {
         ssh_key_file="${HOME}/.ssh/id_rsa.pub"
     fi
     if [ -z "${ssh_key_file}" ]; then
-        print_error "No SSH public key found. VMs use key-based auth only (no password)."
-        print_info "Provide one of: VM_SSH_PUBKEY, VM_SSH_KEY_PATH, or ~/.ssh/id_ed25519.pub / id_rsa.pub"
-        return 1
+        # No key found - generate one on the bastion for VM access
+        print_info "No SSH key found; generating ed25519 key for bastion..."
+        mkdir -p "${HOME}/.ssh"
+        chmod 700 "${HOME}/.ssh"
+        ssh-keygen -t ed25519 -f "${HOME}/.ssh/id_ed25519" -N "" -C "rhacs-vm-bastion"
+        ssh_key_file="${HOME}/.ssh/id_ed25519.pub"
+        print_info "Generated ${ssh_key_file}"
     fi
     print_info "Using SSH key: ${ssh_key_file}"
     
