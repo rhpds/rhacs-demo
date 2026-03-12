@@ -617,9 +617,6 @@ main() {
     # Install virtctl first
     install_virtctl || handle_error "Install virtctl"
     
-    echo ""
-    read -p "Press Enter to continue..."
-    
     # Clean up existing VMs first
     cleanup_existing_vms || handle_error "Cleanup existing VMs"
     
