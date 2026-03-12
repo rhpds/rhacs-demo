@@ -137,7 +137,7 @@ check_prerequisites() {
         ssh_key_file="${HOME}/.ssh/id_ed25519.pub"
         print_info "Generated ${ssh_key_file}"
     fi
-    print_info "Using SSH key: ${ssh_key_file} (console: cloud-user + Enter for password)"
+    print_info "Using SSH key: ${ssh_key_file} (console: user / redhat)"
     
     print_info "✓ Prerequisites met"
 }
@@ -176,9 +176,14 @@ hostname: rhel-${vm_profile}
 fqdn: rhel-${vm_profile}.local
 
 users:
-  - name: cloud-user
+  - name: user
     sudo: ALL=(ALL) NOPASSWD:ALL
     lock_passwd: false
+
+chpasswd:
+  expire: false
+  list:
+    - user:redhat
 EOF
     if [ -n "${ssh_key_file}" ] && [ -f "${ssh_key_file}" ]; then
         echo "    ssh_authorized_keys:"
@@ -214,21 +219,11 @@ EOF
     # Continue with runcmd
     cat <<EOF
 runcmd:
-  # Enable PAM nullok and passwordless for console access (fallback when SSH key fails)
-  - |
-    authselect enable-feature with-nullok 2>/dev/null || \
-    for f in /etc/pam.d/system-auth /etc/pam.d/password-auth; do
-      [ -f "\$f" ] && grep -q 'pam_unix.so' "\$f" && ! grep -q 'nullok' "\$f" && \
-        sed -i '/pam_unix\.so/s/pam_unix\.so/& nullok/' "\$f"
-    done
-  - passwd -d cloud-user
-  # SSH: allow both key and password auth (key for virtctl ssh, passwordless for console)
+  # SSH: allow key and password auth
   - sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
   - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-  - sed -i 's/^#*PermitEmptyPasswords.*/PermitEmptyPasswords yes/' /etc/ssh/sshd_config
   - grep -q '^PubkeyAuthentication' /etc/ssh/sshd_config || echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config
   - grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
-  - grep -q '^PermitEmptyPasswords' /etc/ssh/sshd_config || echo 'PermitEmptyPasswords yes' >> /etc/ssh/sshd_config
   - systemctl restart sshd
   # Wait for network
   - until ping -c 1 8.8.8.8 &> /dev/null; do sleep 2; done
@@ -742,7 +737,7 @@ display_vm_info() {
     done
     
     echo ""
-    print_info "SSH into VMs: virtctl ssh -i ~/.ssh/id_ed25519 cloud-user@vmi/<vm-name> -n ${NAMESPACE}"
+    print_info "SSH into VMs: virtctl ssh -i ~/.ssh/id_ed25519 user@vmi/<vm-name> -n ${NAMESPACE}"
     print_info "Check roxagent status inside VM: systemctl status roxagent"
     print_info "View installed DNF packages: dnf list installed"
     print_info "Monitor RHACS: Platform Configuration → Clusters → Virtual Machines"
@@ -933,7 +928,7 @@ main() {
     
     if [ "${SKIP_SUBSCRIPTION}" != "true" ] && { [ -n "${RHEL_USERNAME}" ] || [ -n "${RHEL_ORG}" ]; }; then
         print_info "Cloud-init will (this takes 5-10 minutes):"
-        echo "  1. Create cloud-user with passwordless login"
+        echo "  1. Create user with password (user/redhat)"
         echo "  2. Register Red Hat subscription"
         echo "  3. Install profile-specific packages"
         echo "  4. Download and start roxagent"
@@ -958,9 +953,9 @@ main() {
         fi
         echo ""
         print_info "SSH into VM (key-based; virtctl ssh does not support password):"
-        echo "  $ virtctl ssh -i ~/.ssh/id_ed25519 cloud-user@vmi/rhel-webserver -n ${NAMESPACE}"
+        echo "  $ virtctl ssh -i ~/.ssh/id_ed25519 user@vmi/rhel-webserver -n ${NAMESPACE}"
         echo ""
-        print_warn "If SSH fails, use console: virtctl console rhel-webserver -n ${NAMESPACE} (login: cloud-user, password: Enter)"
+        print_warn "If SSH fails, use console: virtctl console rhel-webserver -n ${NAMESPACE} (login: user, password: redhat)"
         print_warn "Or recreate VMs to pick up bastion key: oc delete vm rhel-webserver rhel-database rhel-devtools rhel-monitoring -n ${NAMESPACE} && $0"
         echo ""
         print_info "Monitor RHACS:"
@@ -968,7 +963,7 @@ main() {
         echo "  Vulnerability Management → Workload CVEs"
     else
         print_info "Cloud-init will:"
-        echo "  • Create cloud-user with SSH key auth (bastion key)"
+        echo "  • Create user with SSH key auth (bastion key)"
         echo "  • Download and start roxagent"
         echo ""
         print_warn "⚠ No subscription configured - packages NOT installed"
@@ -986,7 +981,7 @@ main() {
         print_info "To add vulnerability data:"
         echo ""
         echo "  1. SSH into VM:"
-        echo "     $ virtctl ssh -i ~/.ssh/id_ed25519 cloud-user@vmi/rhel-webserver -n ${NAMESPACE}"
+        echo "     $ virtctl ssh -i ~/.ssh/id_ed25519 user@vmi/rhel-webserver -n ${NAMESPACE}"
         echo ""
         echo "  2. Register subscription:"
         echo "     $ sudo subscription-manager register --username USER --password PASS"

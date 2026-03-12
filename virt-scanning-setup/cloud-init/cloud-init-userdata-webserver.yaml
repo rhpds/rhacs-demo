@@ -1,35 +1,27 @@
 #cloud-config
 # Cloud-init userdata for rhel-webserver VM
-# REQUIRED for virtctl ssh: Replace REPLACE_WITH_YOUR_SSH_PUBLIC_KEY with your bastion's
-# public key (e.g. cat ~/.ssh/id_ed25519.pub). virtctl ssh does NOT support password auth.
-# Console: virtctl console rhel-webserver -n default (cloud-user + Enter)
+# Console: virtctl console rhel-webserver -n default (login: user, password: redhat)
+# SSH: Replace REPLACE_WITH_YOUR_SSH_PUBLIC_KEY with your bastion's public key
 hostname: rhel-webserver
 fqdn: rhel-webserver.local
 
 users:
-  - name: cloud-user
+  - name: user
     sudo: ALL=(ALL) NOPASSWD:ALL
     lock_passwd: false
-    # REQUIRED for virtctl ssh - use your actual public key:
     ssh_authorized_keys:
       - REPLACE_WITH_YOUR_SSH_PUBLIC_KEY
 
+chpasswd:
+  expire: false
+  list:
+    - user:redhat
+
 runcmd:
-  # Enable passwordless for console (cloud-user + Enter)
-  - |
-    authselect enable-feature with-nullok 2>/dev/null || \
-    for f in /etc/pam.d/system-auth /etc/pam.d/password-auth; do
-      [ -f "$f" ] && grep -q 'pam_unix.so' "$f" && ! grep -q 'nullok' "$f" && \
-        sed -i '/pam_unix\.so/s/pam_unix\.so/& nullok/' "$f"
-    done
-  - passwd -d cloud-user
-  # SSH: allow both key and password auth
   - sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
   - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-  - sed -i 's/^#*PermitEmptyPasswords.*/PermitEmptyPasswords yes/' /etc/ssh/sshd_config
   - grep -q '^PubkeyAuthentication' /etc/ssh/sshd_config || echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config
   - grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
-  - grep -q '^PermitEmptyPasswords' /etc/ssh/sshd_config || echo 'PermitEmptyPasswords yes' >> /etc/ssh/sshd_config
   - systemctl restart sshd
   # Wait for network
   - until ping -c 1 8.8.8.8 &> /dev/null; do sleep 2; done

@@ -86,7 +86,7 @@ sed "s|REPLACE_WITH_YOUR_SSH_PUBLIC_KEY|$(cat ~/.ssh/id_ed25519.pub)|" cloud-ini
 
 **Connect with explicit key:**
 ```bash
-virtctl ssh -i ~/.ssh/id_ed25519 cloud-user@vmi/rhel-webserver -n $NAMESPACE
+virtctl ssh -i ~/.ssh/id_ed25519 user@vmi/rhel-webserver -n $NAMESPACE
 ```
 
 ### RHEL subscription
@@ -107,7 +107,7 @@ Edit the VM manifests to change:
 ## Accessing VMs
 
 - **Console**: OpenShift Console → Workloads → Virtualization → VirtualMachines → select VM → Console
-- **SSH** (if keys injected): `virtctl ssh -i ~/.ssh/id_ed25519 cloud-user@vmi/rhel-webserver -n $NAMESPACE`
+- **SSH** (if keys injected): `virtctl ssh -i ~/.ssh/id_ed25519 user@vmi/rhel-webserver -n $NAMESPACE`
 
 ## Relationship to 02-deploy-sample-vms.sh
 
