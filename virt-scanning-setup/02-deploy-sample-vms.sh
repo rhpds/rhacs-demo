@@ -15,8 +15,13 @@ print_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 print_step() { echo -e "${BLUE}[STEP]${NC} $*"; }
 
-# Configuration
-readonly NAMESPACE="${NAMESPACE:-default}"
+# Configuration (sanitize NAMESPACE - newlines/carriage returns break oc apply and sed)
+_namespace="${NAMESPACE:-default}"
+_namespace="$(printf '%s' "${_namespace}" | tr -d '\n\r')"
+_namespace="${_namespace:-default}"
+# openshift-cnv is the operator namespace - use default for VMs
+[[ "${_namespace}" == "openshift-cnv" ]] && _namespace="default"
+readonly NAMESPACE="${_namespace}"
 readonly VM_CPUS="${VM_CPUS:-2}"
 readonly VM_MEMORY="${VM_MEMORY:-4Gi}"
 STORAGE_CLASS="${STORAGE_CLASS:-ocs-external-storagecluster-ceph-rbd}"
@@ -550,13 +555,16 @@ spec:
           secretRef:
             name: __SECRET_NAME__
 VMYAML
-    sed -e "s|__VM_NAME__|${vm_name}|g" \
-        -e "s|__NAMESPACE__|${NAMESPACE}|g" \
-        -e "s|__VM_PROFILE__|${vm_profile}|g" \
-        -e "s|__VM_CPUS__|${VM_CPUS}|g" \
-        -e "s|__VM_MEMORY__|${VM_MEMORY}|g" \
-        -e "s|__RHEL_IMAGE__|${RHEL_IMAGE}|g" \
-        -e "s|__SECRET_NAME__|${secret_name}|g" "${tmp_vm}" > "${tmp_vm}.subst"
+    while IFS= read -r line; do
+        line="${line//__VM_NAME__/${vm_name}}"
+        line="${line//__NAMESPACE__/${NAMESPACE}}"
+        line="${line//__VM_PROFILE__/${vm_profile}}"
+        line="${line//__VM_CPUS__/${VM_CPUS}}"
+        line="${line//__VM_MEMORY__/${VM_MEMORY}}"
+        line="${line//__RHEL_IMAGE__/${RHEL_IMAGE}}"
+        line="${line//__SECRET_NAME__/${secret_name}}"
+        echo "$line"
+    done < "${tmp_vm}" > "${tmp_vm}.subst"
     mv "${tmp_vm}.subst" "${tmp_vm}"
     oc apply -f "${tmp_vm}"
     rm -f "${tmp_vm}"
@@ -598,9 +606,13 @@ spec:
       targetPort: 80
   type: ClusterIP
 SVCYAML
-    sed -e "s|__SERVICE_NAME__|${service_name}|g" \
-        -e "s|__NAMESPACE__|${NAMESPACE}|g" \
-        -e "s|__VM_NAME__|${vm_name}|g" "${tmp_svc}" > "${tmp_svc}.subst"
+    # Use simple string replacement (avoids sed escaping issues with NAMESPACE)
+    while IFS= read -r line; do
+        line="${line//__SERVICE_NAME__/${service_name}}"
+        line="${line//__NAMESPACE__/${NAMESPACE}}"
+        line="${line//__VM_NAME__/${vm_name}}"
+        echo "$line"
+    done < "${tmp_svc}" > "${tmp_svc}.subst"
     mv "${tmp_svc}.subst" "${tmp_svc}"
     oc apply -f "${tmp_svc}"
     rm -f "${tmp_svc}"
@@ -636,9 +648,12 @@ spec:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
 ROUTEYAML
-    sed -e "s|__ROUTE_NAME__|${route_name}|g" \
-        -e "s|__NAMESPACE__|${NAMESPACE}|g" \
-        -e "s|__SERVICE_NAME__|${service_name}|g" "${tmp_route}" > "${tmp_route}.subst"
+    while IFS= read -r line; do
+        line="${line//__ROUTE_NAME__/${route_name}}"
+        line="${line//__NAMESPACE__/${NAMESPACE}}"
+        line="${line//__SERVICE_NAME__/${service_name}}"
+        echo "$line"
+    done < "${tmp_route}" > "${tmp_route}.subst"
     mv "${tmp_route}.subst" "${tmp_route}"
     oc apply -f "${tmp_route}"
     rm -f "${tmp_route}"
