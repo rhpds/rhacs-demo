@@ -561,25 +561,33 @@ create_webserver_route() {
     # Create Service to expose port 80
     print_info "Creating Service for webserver..."
     
-    oc apply -f - <<EOF
+    local tmp_svc
+    tmp_svc=$(mktemp)
+    cat > "${tmp_svc}" <<'SVCYAML'
 apiVersion: v1
 kind: Service
 metadata:
-  name: ${service_name}
-  namespace: ${NAMESPACE}
+  name: __SERVICE_NAME__
+  namespace: __NAMESPACE__
   labels:
     app: rhacs-vm-scanning
     profile: webserver
 spec:
   selector:
-    "kubevirt.io/vm": ${vm_name}
+    kubevirt.io/vm: __VM_NAME__
   ports:
     - name: http
       protocol: TCP
       port: 80
       targetPort: 80
   type: ClusterIP
-EOF
+SVCYAML
+    sed -e "s|__SERVICE_NAME__|${service_name}|g" \
+        -e "s|__NAMESPACE__|${NAMESPACE}|g" \
+        -e "s|__VM_NAME__|${vm_name}|g" "${tmp_svc}" > "${tmp_svc}.subst"
+    mv "${tmp_svc}.subst" "${tmp_svc}"
+    oc apply -f "${tmp_svc}"
+    rm -f "${tmp_svc}"
     
     if [ $? -eq 0 ]; then
         print_info "✓ Service created: ${service_name}"
@@ -591,25 +599,33 @@ EOF
     # Create Route
     print_info "Creating Route for webserver..."
     
-    oc apply -f - <<EOF
+    local tmp_route
+    tmp_route=$(mktemp)
+    cat > "${tmp_route}" <<'ROUTEYAML'
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: ${route_name}
-  namespace: ${NAMESPACE}
+  name: __ROUTE_NAME__
+  namespace: __NAMESPACE__
   labels:
     app: rhacs-vm-scanning
     profile: webserver
 spec:
   to:
     kind: Service
-    name: ${service_name}
+    name: __SERVICE_NAME__
   port:
     targetPort: http
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
-EOF
+ROUTEYAML
+    sed -e "s|__ROUTE_NAME__|${route_name}|g" \
+        -e "s|__NAMESPACE__|${NAMESPACE}|g" \
+        -e "s|__SERVICE_NAME__|${service_name}|g" "${tmp_route}" > "${tmp_route}.subst"
+    mv "${tmp_route}.subst" "${tmp_route}"
+    oc apply -f "${tmp_route}"
+    rm -f "${tmp_route}"
     
     if [ $? -eq 0 ]; then
         print_info "✓ Route created: ${route_name}"
