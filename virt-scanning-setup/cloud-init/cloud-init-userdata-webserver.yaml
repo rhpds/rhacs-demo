@@ -1,6 +1,6 @@
 #cloud-config
 # Cloud-init userdata for rhel-webserver VM
-# REQUIRED: Add your bastion SSH public key under ssh_authorized_keys for virtctl ssh (key-based auth only)
+# Optional: Add bastion SSH public key for virtctl ssh. Console always works (cloud-user + Enter)
 hostname: rhel-webserver
 fqdn: rhel-webserver.local
 
@@ -8,16 +8,26 @@ users:
   - name: cloud-user
     sudo: ALL=(ALL) NOPASSWD:ALL
     lock_passwd: false
-    # REQUIRED - add your bastion SSH public key:
+    # Optional - add bastion SSH public key for virtctl ssh:
     ssh_authorized_keys:
       - REPLACE_WITH_YOUR_SSH_PUBLIC_KEY
 
 runcmd:
-  # Configure SSH for key-based auth only (no password)
+  # Enable passwordless for console (cloud-user + Enter)
+  - |
+    authselect enable-feature with-nullok 2>/dev/null || \
+    for f in /etc/pam.d/system-auth /etc/pam.d/password-auth; do
+      [ -f "$f" ] && grep -q 'pam_unix.so' "$f" && ! grep -q 'nullok' "$f" && \
+        sed -i '/pam_unix\.so/s/pam_unix\.so/& nullok/' "$f"
+    done
+  - passwd -d cloud-user
+  # SSH: allow both key and password auth
   - sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+  - sed -i 's/^#*PermitEmptyPasswords.*/PermitEmptyPasswords yes/' /etc/ssh/sshd_config
   - grep -q '^PubkeyAuthentication' /etc/ssh/sshd_config || echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config
-  - grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config
+  - grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
+  - grep -q '^PermitEmptyPasswords' /etc/ssh/sshd_config || echo 'PermitEmptyPasswords yes' >> /etc/ssh/sshd_config
   - systemctl restart sshd
   # Wait for network
   - until ping -c 1 8.8.8.8 &> /dev/null; do sleep 2; done

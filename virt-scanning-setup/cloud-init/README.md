@@ -73,7 +73,7 @@ oc apply -f vm-webserver.yaml -f vm-database.yaml -f vm-devtools.yaml -f vm-moni
 
 ### SSH keys for virtctl ssh (required)
 
-VMs use **key-based auth only** (no password). You must inject your bastion's SSH public key before creating secrets.
+VMs support both **console** (cloud-user + Enter) and **SSH keys** (optional, for virtctl ssh). Inject your bastion's SSH public key for virtctl ssh access.
 
 **Option A – Edit the file:** Replace `REPLACE_WITH_YOUR_SSH_PUBLIC_KEY` in each cloud-init file with your public key content.
 

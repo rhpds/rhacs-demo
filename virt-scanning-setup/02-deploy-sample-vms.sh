@@ -112,7 +112,7 @@ check_prerequisites() {
         fi
     fi
     
-    # Check SSH public key exists (VMs use key-based auth only)
+    # Check SSH public key (optional; enables virtctl ssh; passwordless console always works)
     local ssh_key_file=""
     if [ -n "${VM_SSH_PUBKEY:-}" ]; then
         ssh_key_file="(VM_SSH_PUBKEY)"
@@ -124,15 +124,15 @@ check_prerequisites() {
         ssh_key_file="${HOME}/.ssh/id_rsa.pub"
     fi
     if [ -z "${ssh_key_file}" ]; then
-        # No key found - generate one on the bastion for VM access
-        print_info "No SSH key found; generating ed25519 key for bastion..."
+        # No key - generate one for virtctl ssh; console will use passwordless
+        print_info "No SSH key found; generating ed25519 key for virtctl ssh..."
         mkdir -p "${HOME}/.ssh"
         chmod 700 "${HOME}/.ssh"
         ssh-keygen -t ed25519 -f "${HOME}/.ssh/id_ed25519" -N "" -C "rhacs-vm-bastion"
         ssh_key_file="${HOME}/.ssh/id_ed25519.pub"
         print_info "Generated ${ssh_key_file}"
     fi
-    print_info "Using SSH key: ${ssh_key_file}"
+    print_info "Using SSH key: ${ssh_key_file} (console: cloud-user + Enter for password)"
     
     print_info "✓ Prerequisites met"
 }
@@ -157,10 +157,11 @@ generate_cloudinit() {
         ssh_key_file="${HOME}/.ssh/id_rsa.pub"
     fi
     
-    if [ -z "${ssh_key_file}" ] || [ ! -f "${ssh_key_file}" ]; then
-        print_error "No SSH public key found. VMs use key-based auth only."
-        print_info "Provide one of: VM_SSH_PUBKEY, VM_SSH_KEY_PATH, or ~/.ssh/id_ed25519.pub / id_rsa.pub"
-        return 1
+    # Key optional: if present, enables virtctl ssh; otherwise console passwordless only
+    if [ -n "${ssh_key_file}" ] && [ -f "${ssh_key_file}" ]; then
+        :  # Will inject keys below
+    else
+        ssh_key_file=""
     fi
     
     # Start cloud-init
@@ -208,11 +209,21 @@ EOF
     # Continue with runcmd
     cat <<EOF
 runcmd:
-  # Configure SSH for key-based auth only (keys from bastion host)
+  # Enable PAM nullok and passwordless for console access (fallback when SSH key fails)
+  - |
+    authselect enable-feature with-nullok 2>/dev/null || \
+    for f in /etc/pam.d/system-auth /etc/pam.d/password-auth; do
+      [ -f "$f" ] && grep -q 'pam_unix.so' "$f" && ! grep -q 'nullok' "$f" && \
+        sed -i '/pam_unix\.so/s/pam_unix\.so/& nullok/' "$f"
+    done
+  - passwd -d cloud-user
+  # SSH: allow both key and password auth (key for virtctl ssh, passwordless for console)
   - sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+  - sed -i 's/^#*PermitEmptyPasswords.*/PermitEmptyPasswords yes/' /etc/ssh/sshd_config
   - grep -q '^PubkeyAuthentication' /etc/ssh/sshd_config || echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config
-  - grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config
+  - grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
+  - grep -q '^PermitEmptyPasswords' /etc/ssh/sshd_config || echo 'PermitEmptyPasswords yes' >> /etc/ssh/sshd_config
   - systemctl restart sshd
   # Wait for network
   - until ping -c 1 8.8.8.8 &> /dev/null; do sleep 2; done
@@ -471,7 +482,6 @@ deploy_vm() {
     # Create cloud-init secret
     local secret_name="cloudinit-${vm_profile}"
     print_info "Creating cloud-init secret: ${secret_name}"
-    print_info "Injecting bastion SSH public key for virtctl ssh access"
     
     local cloudinit_content
     cloudinit_content=$(generate_cloudinit "${vm_profile}")
@@ -903,9 +913,8 @@ main() {
         print_info "SSH into VM (uses bastion key, KubeVirt v1.6+ syntax):"
         echo "  $ virtctl ssh cloud-user@vmi/rhel-webserver -n ${NAMESPACE}"
         echo ""
-        print_warn "If SSH fails: VMs may have been created before keys existed. Recreate with:"
-        echo "  $ oc delete vm rhel-webserver rhel-database rhel-devtools rhel-monitoring -n ${NAMESPACE}"
-        echo "  $ $0"
+        print_warn "If SSH fails, use console: virtctl console rhel-webserver -n ${NAMESPACE} (login: cloud-user, password: Enter)"
+        print_warn "Or recreate VMs to pick up bastion key: oc delete vm rhel-webserver rhel-database rhel-devtools rhel-monitoring -n ${NAMESPACE} && $0"
         echo ""
         print_info "Monitor RHACS:"
         echo "  Platform Configuration → Clusters → Virtual Machines"
