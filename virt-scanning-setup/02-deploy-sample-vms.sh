@@ -572,12 +572,12 @@ metadata:
     profile: webserver
 spec:
   selector:
-    kubevirt.io/vm: ${vm_name}
+    "kubevirt.io/vm": ${vm_name}
   ports:
-  - name: http
-    protocol: TCP
-    port: 80
-    targetPort: 80
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
   type: ClusterIP
 EOF
     
