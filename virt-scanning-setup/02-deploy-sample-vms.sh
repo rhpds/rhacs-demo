@@ -31,13 +31,6 @@ readonly ROXAGENT_VERSION="${ROXAGENT_VERSION:-4.9.2}"
 readonly ROXAGENT_URL="https://mirror.openshift.com/pub/rhacs/assets/${ROXAGENT_VERSION}/bin/linux/roxagent"
 readonly AUTO_CONFIRM="${AUTO_CONFIRM:-false}"
 
-# Subscription credentials
-RHEL_USERNAME="${RHEL_USERNAME:-}"
-RHEL_PASSWORD="${RHEL_PASSWORD:-}"
-RHEL_ORG="${RHEL_ORG:-}"
-RHEL_ACTIVATION_KEY="${RHEL_ACTIVATION_KEY:-}"
-SKIP_SUBSCRIPTION="${SKIP_SUBSCRIPTION:-false}"
-
 #================================================================
 # Check prerequisites
 #================================================================
@@ -131,28 +124,6 @@ chpasswd:
     - user:redhat
 EOF
 
-    # Subscription (optional)
-    if [ "${SKIP_SUBSCRIPTION}" != "true" ]; then
-        if [ -n "${RHEL_USERNAME}" ] && [ -n "${RHEL_PASSWORD}" ]; then
-            cat <<EOF
-
-rh_subscription:
-  username: "${RHEL_USERNAME}"
-  password: "${RHEL_PASSWORD}"
-  auto-attach: true
-
-EOF
-        elif [ -n "${RHEL_ORG}" ] && [ -n "${RHEL_ACTIVATION_KEY}" ]; then
-            cat <<EOF
-
-rh_subscription:
-  activation-key: "${RHEL_ACTIVATION_KEY}"
-  org: "${RHEL_ORG}"
-
-EOF
-        fi
-    fi
-
     cat <<EOF
 runcmd:
   # SSH: enable key and password auth
@@ -186,27 +157,12 @@ StandardError=journal
 WantedBy=multi-user.target
 SYSTEMD_EOF
   - systemctl daemon-reload && systemctl enable roxagent && systemctl start roxagent
-EOF
 
-    # Install httpd if subscription configured
-    if [ "${SKIP_SUBSCRIPTION}" != "true" ] && { [ -n "${RHEL_USERNAME}" ] || [ -n "${RHEL_ORG}" ]; }; then
-        cat <<EOF
-
-  # Install and start httpd
-  - dnf install -y httpd
-  - systemctl enable httpd && systemctl start httpd
-  - echo '<h1>RHACS VM Demo</h1><p>Webserver is running.</p>' > /var/www/html/index.html
-  - firewall-cmd --permanent --add-service=http || true
-  - firewall-cmd --reload || true
-  - systemctl restart roxagent
-EOF
-    else
-        cat <<EOF
-
-  # Create install script for manual package install
+  # Create install script for manual package install (run after: sudo subscription-manager register ...)
   - |
     cat > /root/install-packages.sh <<'PKG_SCRIPT'
 #!/bin/bash
+# Run after: sudo subscription-manager register --username USER --password PASS --auto-attach
 dnf install -y httpd
 systemctl enable httpd && systemctl start httpd
 echo '<h1>RHACS VM Demo</h1>' > /var/www/html/index.html
@@ -216,7 +172,6 @@ systemctl restart roxagent
 PKG_SCRIPT
   - chmod +x /root/install-packages.sh
 EOF
-    fi
 
     cat <<EOF
 
@@ -371,42 +326,16 @@ EOF
 parse_arguments() {
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --username)
-                RHEL_USERNAME="$2"
-                shift 2
-                ;;
-            --password)
-                RHEL_PASSWORD="$2"
-                shift 2
-                ;;
-            --org)
-                RHEL_ORG="$2"
-                shift 2
-                ;;
-            --activation-key)
-                RHEL_ACTIVATION_KEY="$2"
-                shift 2
-                ;;
-            --skip-subscription)
-                SKIP_SUBSCRIPTION=true
-                shift
-                ;;
             -h|--help)
                 cat <<EOF
 Usage: $0 [OPTIONS]
 
 Deploy a simple webserver VM into OpenShift with SSH access.
 
-Subscription Options (optional):
-  --username USER         Red Hat username (enables automatic httpd install)
-  --password PASS         Red Hat password
-  --org ORG               Organization ID
-  --activation-key KEY    Activation key
-  --skip-subscription     Skip subscription (VM boots without httpd)
+SSH in after boot to register subscription and run: sudo /root/install-packages.sh
 
-SSH Access:
-  Login: user / redhat
-  virtctl ssh -i ~/.ssh/id_ed25519 user@vmi/${VM_NAME} -n ${NAMESPACE}
+SSH: virtctl ssh -i ~/.ssh/id_ed25519 user@vmi/${VM_NAME} -n ${NAMESPACE}
+Login: user / redhat
 
 EOF
                 exit 0
@@ -452,8 +381,15 @@ main() {
     print_info "✓ Deployment complete!"
     echo ""
     print_info "VM will be ready in ~3-5 minutes."
-    print_info "SSH: virtctl ssh -i ~/.ssh/id_ed25519 user@vmi/${VM_NAME} -n ${NAMESPACE}"
-    print_info "Console: virtctl console ${VM_NAME} -n ${NAMESPACE} (user/redhat)"
+    echo ""
+    print_info "SSH in, then run:"
+    echo ""
+    echo "  virtctl ssh -i ~/.ssh/id_ed25519 user@vmi/${VM_NAME} -n ${NAMESPACE}"
+    echo ""
+    echo "  sudo subscription-manager register --username <user> --password <pass> --auto-attach"
+    echo "  sudo /root/install-packages.sh"
+    echo ""
+    print_info "Console fallback: virtctl console ${VM_NAME} -n ${NAMESPACE} (user/redhat)"
     print_info "Status: oc get vmi -n ${NAMESPACE}"
     echo ""
 }
