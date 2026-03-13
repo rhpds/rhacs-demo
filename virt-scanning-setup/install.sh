@@ -26,6 +26,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Configuration
 DEPLOY_SAMPLE_VMS="${DEPLOY_SAMPLE_VMS:-true}"
+VIRTCTL_DEFAULT_VERSION="${VIRTCTL_DEFAULT_VERSION:-v1.6.3}"
 
 #================================================================
 # Display banner
@@ -253,32 +254,37 @@ install_virtctl() {
     local raw_version
     raw_version=$(oc get kubevirt -A -o jsonpath='{.items[0].status.observedKubeVirtVersion}' 2>/dev/null || true)
     if [ -n "${raw_version}" ] && [ "${raw_version}" != "null" ] && [[ ! "${raw_version}" =~ ^sha256: ]]; then
-        cluster_version=$(echo "${raw_version}" | grep -oP '^v\d+\.\d+\.\d+' || echo "")
+        cluster_version=$(echo "${raw_version}" | grep -oP '^v?\d+\.\d+\.\d+' | sed 's/^/v/')
     fi
     
     # If observedKubeVirtVersion is a hash (digest-based install), get server version from virtctl
     if [ -z "${cluster_version}" ] && command -v virtctl &>/dev/null; then
-        cluster_version=$(virtctl version 2>/dev/null | grep -i "server" | grep -oP 'v\d+\.\d+\.\d+' | head -1)
+        cluster_version=$(virtctl version 2>/dev/null | grep -i "server" | grep -oP 'v?\d+\.\d+\.\d+' | head -1 | sed 's/^/v/')
         [ -n "${cluster_version}" ] && print_info "Cluster KubeVirt version from virtctl: ${cluster_version}"
     fi
-    [ -n "${cluster_version}" ] && print_info "Target virtctl version: ${cluster_version}"
     
-    # Check if virtctl already exists and matches cluster version
+    # Use cluster version when available, else default (e.g. v1.6.3)
+    local target_version="${cluster_version:-${VIRTCTL_DEFAULT_VERSION}}"
+    # Ensure target has v prefix
+    [[ "${target_version}" =~ ^v ]] || target_version="v${target_version}"
+    print_info "Target virtctl version: ${target_version}"
+    
+    # Check if virtctl already exists and matches target version
     if command -v virtctl &>/dev/null; then
         local current_version
         current_version=$(virtctl version --client 2>/dev/null | grep -oP 'GitVersion:"v\K[^"]+' || virtctl version 2>/dev/null | grep -oP 'Client Version:\s*v\K[^\s]+' || echo "unknown")
         print_info "Installed virtctl version: ${current_version}"
-        if [ -n "${cluster_version}" ]; then
-            local cluster_major_minor
-            cluster_major_minor=$(echo "${cluster_version}" | grep -oP '\d+\.\d+' | sed 's/^/v/')
+        if [ -n "${target_version}" ]; then
+            local target_major_minor
+            target_major_minor=$(echo "${target_version}" | grep -oP '\d+\.\d+' | sed 's/^/v/')
             local current_major_minor
             current_major_minor=$(echo "${current_version}" | grep -oP '\d+\.\d+' | sed 's/^/v/')
-            if [ -n "${cluster_major_minor}" ] && [ -n "${current_major_minor}" ] && [ "${cluster_major_minor}" = "${current_major_minor}" ]; then
-                print_info "✓ virtctl matches cluster version (${cluster_major_minor}.x)"
+            if [ -n "${target_major_minor}" ] && [ -n "${current_major_minor}" ] && [ "${target_major_minor}" = "${current_major_minor}" ]; then
+                print_info "✓ virtctl matches target version (${target_major_minor}.x)"
                 sleep 1
                 return 0
             else
-                print_warn "virtctl v${current_version} does not match cluster v${cluster_version} - reinstalling..."
+                print_warn "virtctl ${current_version} does not match target ${target_version} - reinstalling..."
                 local virtctl_path
                 virtctl_path=$(command -v virtctl)
                 if [ -n "${virtctl_path}" ]; then
@@ -329,18 +335,18 @@ install_virtctl() {
     # Remove any existing temp file
     rm -f "$temp_file"
     
-    # Method 1: Cluster KubeVirt version (preferred - avoids client/server mismatch)
-    if [ -n "${cluster_version}" ] && [ "$download_success" = false ]; then
-        print_info "Trying cluster version ${cluster_version} (matches KubeVirt in cluster)..."
-        local official_binary="virtctl-${cluster_version}-linux-amd64"
+    # Method 1: Target version (cluster or default - avoids client/server mismatch)
+    if [ -n "${target_version}" ] && [ "$download_success" = false ]; then
+        print_info "Trying version ${target_version} (matches cluster or default)..."
+        local official_binary="virtctl-${target_version}-linux-amd64"
         if [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then
-            official_binary="virtctl-${cluster_version}-linux-arm64"
+            official_binary="virtctl-${target_version}-linux-arm64"
         fi
-        local download_url="https://github.com/kubevirt/kubevirt/releases/download/${cluster_version}/${official_binary}"
+        local download_url="https://github.com/kubevirt/kubevirt/releases/download/${target_version}/${official_binary}"
         
         if curl -L -f -o "$temp_file" "$download_url" 2>/dev/null; then
             if file "$temp_file" 2>/dev/null | grep -q "executable"; then
-                print_info "✓ Successfully downloaded virtctl ${cluster_version} (matches cluster)"
+                print_info "✓ Successfully downloaded virtctl ${target_version}"
                 download_success=true
             else
                 rm -f "$temp_file"
@@ -376,7 +382,7 @@ install_virtctl() {
     if [ "$download_success" = false ]; then
         print_info "Trying alternative versions..."
         local versions_to_try=("v1.6.3" "v1.5.0" "v1.3.1" "v1.2.2")
-        [ -n "${cluster_version}" ] && versions_to_try=("${cluster_version}" "${versions_to_try[@]}")
+        [ -n "${target_version}" ] && versions_to_try=("${target_version}" "${versions_to_try[@]}")
         
         for version in "${versions_to_try[@]}"; do
             [ -z "$version" ] || [ "$version" = "null" ] && continue
