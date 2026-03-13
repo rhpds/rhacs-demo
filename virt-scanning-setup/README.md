@@ -513,8 +513,3 @@ This will verify:
 - [OpenShift Virtualization](https://docs.openshift.com/container-platform/latest/virt/about-virt.html)
 - [KubeVirt VSOCK](https://kubevirt.io/user-guide/virtual_machines/vsock/)
 - [roxagent Downloads](https://mirror.openshift.com/pub/rhacs/assets/)
-
-sudo subscription-manager register --username mfoster@redhat.com --password '_.vLx4eVbKde!_ARpprJ' --auto-attach
-sudo subscription-manager repos --enable rhel-9-for-x86_64-baseos-rpms --enable rhel-9-for-x86_64-appstream-rpms
-sudo dnf install -y httpd nginx php
-sudo systemctl restart roxagent

@@ -44,13 +44,9 @@ display_banner() {
     echo "  2. Configure RHACS for VM scanning"
     echo "  3. Enable VSOCK in OpenShift Virtualization"
     echo "  4. Register Red Hat subscription (optional)"
-    echo "  5. Deploy 4 RHEL VMs with roxagent"
+    echo "  5. Deploy webserver VM with roxagent"
     echo ""
-    echo "Sample VMs:"
-    echo "  • rhel-webserver   (Apache, Nginx, PHP)"
-    echo "  • rhel-database    (PostgreSQL, MariaDB)"
-    echo "  • rhel-devtools    (Git, GCC, Python, Java)"
-    echo "  • rhel-monitoring  (Grafana, Telegraf)"
+    echo "VM: rhel-webserver (Apache, SSH-able)"
     echo ""
     echo "With subscription credentials, packages install automatically!"
     echo "VMs will have vulnerability data in RHACS immediately."
@@ -71,12 +67,7 @@ cleanup_existing_vms() {
     print_header "════════════════════════════════════════════════════════════"
     echo ""
     
-    local vms_to_delete=(
-        "rhel-webserver"
-        "rhel-database"
-        "rhel-devtools"
-        "rhel-monitoring"
-    )
+    local vms_to_delete=("rhel-webserver")
     
     local found_vms=false
     
@@ -257,7 +248,7 @@ step_deploy_sample_vms() {
         return 1
     fi
     
-    print_info "Deploying 4 sample VMs..."
+    print_info "Deploying webserver VM..."
     
     # Export AUTO_CONFIRM to skip prompts
     export AUTO_CONFIRM=true
@@ -298,11 +289,8 @@ display_summary() {
     echo "  ✓ RHACS Central, Sensor, Collector (ROX_VIRTUAL_MACHINES=true)"
     echo "  ✓ OpenShift Virtualization VSOCK feature gate enabled"
     echo "  ✓ Collector hostNetwork + DNS configured for VSOCK"
-    echo "  ✓ 4 RHEL VMs deployed with roxagent:"
-    echo "    • rhel-webserver"
-    echo "    • rhel-database"
-    echo "    • rhel-devtools"
-    echo "    • rhel-monitoring"
+    echo "  ✓ Webserver VM deployed with roxagent:"
+    echo "    • rhel-webserver (SSH-able)"
     
     echo ""
     
@@ -353,7 +341,7 @@ display_summary() {
         echo "  2. SSH into VMs (use -i to specify key):"
         echo "     $ virtctl ssh -i ~/.ssh/id_ed25519 user@vmi/rhel-webserver -n default"
         echo ""
-        echo "  3. Register each VM and install packages:"
+        echo "  3. Register VM and install packages:"
         echo "     Inside VM console:"
         echo "     $ sudo subscription-manager register --username <user> --password <pass> --auto-attach"
         echo "     $ sudo /root/install-packages.sh"
