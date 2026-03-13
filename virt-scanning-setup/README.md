@@ -324,7 +324,8 @@ sudo /root/install-packages.sh
 
 | File | Purpose |
 |------|---------|
-| `vm-template-rhacm.yaml` | Complete VM template for manual RHACM deployment |
+| `vm-templates/rhel-webserver-vm.yaml` | **Default VM template** - apply directly: `oc apply -f vm-templates/rhel-webserver-vm.yaml` |
+| `cloud-init/rhel-web-01-cloud-init.yaml` | Cloud-init config (httpd, SSH password auth) |
 
 ## Understanding DNF Package Scanning
 

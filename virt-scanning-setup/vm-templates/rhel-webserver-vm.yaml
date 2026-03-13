@@ -1,0 +1,118 @@
+# RHEL webserver VM - apply via: ./02-deploy-sample-vms.sh (requires RH_USERNAME/RH_PASSWORD)
+# Or apply directly after substituting <YOUR_REDHAT_USERNAME> and <YOUR_REDHAT_PASSWORD>
+# Requires: OpenShift Virtualization, registry.redhat.io pull secret, RHACS (for VSOCK)
+# Console: virtctl console rhel-webserver -n default (login: cloud-user / redhat)
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: rhel-webserver
+  namespace: default
+  annotations:
+    description: RHEL webserver VM with cloud-init password access + auto-subscription + basic httpd
+  labels:
+    app: rhel-webserver
+    os.template.kubevirt.io/rhel9: "true"
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      annotations:
+        vm.kubevirt.io/flavor: small
+        vm.kubevirt.io/os: rhel9
+        vm.kubevirt.io/workload: server
+      labels:
+        kubevirt.io/domain: rhel-webserver
+        kubevirt.io/size: small
+    spec:
+      domain:
+        cpu:
+          cores: 1
+          sockets: 1
+          threads: 1
+        devices:
+          autoattachVSOCK: true
+          disks:
+            - disk:
+                bus: virtio
+              name: rootdisk
+            - disk:
+                bus: virtio
+              name: cloudinitdisk
+          interfaces:
+            - masquerade: {}
+              model: virtio
+              name: default
+          networkInterfaceMultiqueue: true
+          rng: {}
+        memory:
+          guest: 2Gi
+      hostname: rhel-web-01
+      networks:
+        - name: default
+          pod: {}
+      terminationGracePeriodSeconds: 180
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: registry.redhat.io/rhel9/rhel-guest-image:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userData: |-
+              #cloud-config
+              hostname: rhel-web-01
+              fqdn: rhel-web-01.example.local
+
+              users:
+                - default
+                - name: cloud-user
+                  lock_passwd: false
+                  sudo: ALL=(ALL) NOPASSWD:ALL
+                  groups: wheel
+
+              chpasswd:
+                list: |
+                  cloud-user:redhat
+                expire: false
+
+              ssh_pwauth: true
+
+              rh_subscription:
+                username: <YOUR_REDHAT_USERNAME>
+                password: <YOUR_REDHAT_PASSWORD>
+
+              packages:
+                - httpd
+                - firewalld
+                - curl
+                - vim
+                - git
+
+              write_files:
+                - path: /etc/ssh/sshd_config.d/zz-enable-password.conf
+                  content: |
+                    PasswordAuthentication yes
+                  permissions: '0600'
+                  owner: root:root
+
+              runcmd:
+                - rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf || true
+                - systemctl restart sshd
+                - firewall-cmd --permanent --add-service=ssh || true
+                - firewall-cmd --permanent --add-service=http || true
+                - firewall-cmd --permanent --add-service=https || true
+                - firewall-cmd --reload || true
+                - systemctl enable --now httpd
+                - subscription-manager repos --enable=rhel-*-for-x86_64-baseos-rpms --enable=rhel-*-for-x86_64-appstream-rpms || true
+                - |
+                  echo '<!DOCTYPE html>
+                  <html><head><title>RHEL Web Server</title></head><body>
+                  <h1>It works!</h1>
+                  <p>Hostname: '"$(hostname)"'</p>
+                  <p>IP: '"$(hostname -I | awk "{print \$1}")"'</p>
+                  </body></html>' > /var/www/html/index.html
+                - echo "Cloud-init completed - web server running" >> /var/log/cloud-init-test.log
+
+              output:
+                all: |-
+                  tee -a /var/log/cloud-init-output.log
+              final_message: "System is up after $UPTIME seconds"
