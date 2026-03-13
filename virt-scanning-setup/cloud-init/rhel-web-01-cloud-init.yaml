@@ -1,62 +1,52 @@
 #cloud-config
 
-# ───────────────────────────────────────────────
-# 1. Basic system setup
-# ───────────────────────────────────────────────
 hostname: rhel-web-01
 fqdn: rhel-web-01.example.local
 
-# ───────────────────────────────────────────────
-# 2. Create/adjust users + enable password auth
-# ───────────────────────────────────────────────
-
-# Keep default 'cloud-user' + give it a password + sudo
 users:
   - default
   - name: cloud-user
-    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    lock_passwd: false          # Explicitly allow password login (prevents !! lock in /etc/shadow)
+    sudo: ALL=(ALL) NOPASSWD:ALL
     groups: wheel, systemd-journal
     shell: /bin/bash
 
+# Set password reliably — use this format (users list instead of chpasswd.list)
 chpasswd:
-  list: |
-    cloud-user:redhat
+  users:
+    - name: cloud-user
+      password: redhat
+      type: text                # Ensures plain text, not hash
   expire: false
 
-# Critical: allow password authentication over SSH
 ssh_pwauth: true
 
-# ───────────────────────────────────────────────
-# 3. Install & configure basic web server (httpd)
-# ───────────────────────────────────────────────
-package_update: true
-package_upgrade: false
+# Your override — use 'zz-' so it sorts last
+write_files:
+  - path: /etc/ssh/sshd_config.d/zz-enable-password.conf
+    content: |
+      PasswordAuthentication yes
+      # Optional: if you ever want root ssh too (not recommended by default)
+      # PermitRootLogin yes
+    permissions: '0600'
+    owner: root:root
 
 packages:
   - httpd
   - firewalld
 
-# Force override cloud-init's default drop-in that disables SSH password auth
-write_files:
-  - path: /etc/ssh/sshd_config.d/99-enable-passwords.conf
-    content: |
-      PasswordAuthentication yes
-    permissions: '0600'
-    owner: root:root
-
+# Disable problematic cloud-init behavior, fix SSH, then firewall/httpd
 runcmd:
-  # Restart sshd so password auth takes effect (RHEL cloud images disable it by default)
+  - sed -i 's/- set_passwords/- [set_passwords, once-per-instance]/' /etc/cloud/cloud.cfg || true
+  - rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf || true
   - systemctl restart sshd
-  # Basic firewall config - allow http + https + ssh
+  - firewall-cmd --permanent --add-service=ssh
   - firewall-cmd --permanent --add-service=http
   - firewall-cmd --permanent --add-service=https
-  - firewall-cmd --permanent --add-service=ssh
   - firewall-cmd --reload
+  - systemctl enable --now firewalld httpd sshd   # Ensure sshd is enabled too
 
-  # Make sure httpd starts and is enabled
-  - systemctl enable --now httpd
-
-  # Create a simple test page (hostname/IP filled at boot time)
+  # Test page
   - |
     echo '<!DOCTYPE html>
     <html><head><title>Hello from RHEL on OpenShift</title></head>
@@ -66,9 +56,7 @@ runcmd:
       <p>IP: '"$(hostname -I | awk "{print \$1}")"'</p>
     </body></html>' > /var/www/html/index.html
 
-# ───────────────────────────────────────────────
-# 4. Logging (helps debugging cloud-init itself)
-# ───────────────────────────────────────────────
+# Keep your logging
 output:
   all: |-
     tee -a /var/log/cloud-init-output.log
