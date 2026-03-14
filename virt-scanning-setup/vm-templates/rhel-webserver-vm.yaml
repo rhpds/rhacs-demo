@@ -2,19 +2,19 @@ apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
   name: rhel-webserver
-  namespace: default
+  namespace: default  # change if needed
   annotations:
-    description: Basic RHEL VM with password access (reset template)
+    description: RHEL webserver VM with cloud-init password access
   labels:
     app: rhel-webserver
-    os.template.kubevirt.io/rhel9: "true"
+    os.template.kubevirt.io/rhel10: 'true'  # or rhel9/rhel8 as appropriate
 spec:
-  runStrategy: Always
+  runStrategy: Halted  # change to Always to auto-start
   template:
     metadata:
       annotations:
         vm.kubevirt.io/flavor: small
-        vm.kubevirt.io/os: rhel9
+        vm.kubevirt.io/os: rhel10
         vm.kubevirt.io/workload: server
       labels:
         kubevirt.io/domain: rhel-webserver
@@ -26,7 +26,6 @@ spec:
           sockets: 1
           threads: 1
         devices:
-          autoattachVSOCK: true
           disks:
             - disk:
                 bus: virtio
@@ -50,7 +49,7 @@ spec:
       volumes:
         - name: rootdisk
           containerDisk:
-            image: registry.redhat.io/rhel9/rhel-guest-image:latest
+            image: registry.redhat.io/rhel10/rhel-guest-image  # confirm exact tag if needed (e.g., :latest or :10.0)
         - name: cloudinitdisk
           cloudInitNoCloud:
             userData: |-
@@ -64,7 +63,6 @@ spec:
                   lock_passwd: false
                   sudo: ALL=(ALL) NOPASSWD:ALL
                   groups: wheel
-                  shell: /bin/bash
 
               chpasswd:
                 list: |
@@ -85,7 +83,7 @@ spec:
                 - systemctl restart sshd
                 - firewall-cmd --permanent --add-service=ssh || true
                 - firewall-cmd --reload || true
-                - echo "Cloud-init basic setup completed" >> /var/log/cloud-init-test.log
+                - echo "Cloud-init completed - password should be set" >> /var/log/cloud-init-test.log
 
               output:
                 all: |-
