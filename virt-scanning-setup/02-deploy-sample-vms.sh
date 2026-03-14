@@ -74,20 +74,19 @@ if [ ! -f "${VM_TEMPLATE}" ]; then
     exit 1
 fi
 
-# Require subscription credentials unless --skip-subscription
+# Prompt for subscription credentials unless --skip-subscription or already set
 if [ "${SKIP_SUBSCRIPTION}" != "true" ]; then
     RH_USERNAME="${RH_USERNAME:-}"
     RH_PASSWORD="${RH_PASSWORD:-}"
     if [ -z "${RH_USERNAME}" ] || [ -z "${RH_PASSWORD}" ]; then
-        print_error "Red Hat subscription credentials required for auto-registration"
         echo ""
-        print_info "Provide credentials via:"
-        echo "  RH_USERNAME=user@example.com RH_PASSWORD=secret $0"
-        echo "  $0 --username user@example.com --password secret"
-        echo ""
-        print_info "Or skip subscription (manual registration in VM):"
-        echo "  $0 --skip-subscription"
-        exit 1
+        print_info "Red Hat subscription credentials (for VM auto-registration):"
+        [ -z "${RH_USERNAME}" ] && read -rp "  Username: " RH_USERNAME
+        [ -z "${RH_PASSWORD}" ] && read -rsp "  Password: " RH_PASSWORD && echo ""
+        if [ -z "${RH_USERNAME}" ] || [ -z "${RH_PASSWORD}" ]; then
+            print_error "Credentials required. Use --skip-subscription to deploy without registration."
+            exit 1
+        fi
     fi
 fi
 
