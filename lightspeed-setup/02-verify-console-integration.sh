@@ -67,7 +67,7 @@ ensure_lightspeed_console_plugin_enabled() {
         print_info "Without OLSConfig, the 'Ask OpenShift Lightspeed' button will not appear."
         print_info ""
         print_info "To fix:"
-        print_info "  1. Create a credentials secret and OLSConfig (see lightspeed-setup/README.md)"
+        print_info "  1. Run: ./lightspeed-setup/03-create-olsconfig.sh (prompts for API token and details)"
         print_info "  2. Wait 2-3 minutes for the operator to create the ConsolePlugin"
         print_info "  3. Re-run: ./lightspeed-setup/02-verify-console-integration.sh"
         print_info ""

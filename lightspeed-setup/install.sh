@@ -82,6 +82,26 @@ main() {
     fi
     echo ""
 
+    # Step 3: Offer to create OLSConfig (credentials secret + OLSConfig)
+    if [ -f "${SCRIPT_DIR}/03-create-olsconfig.sh" ]; then
+        if [ -t 0 ] && [ -t 1 ]; then
+            echo ""
+            read -r -p "Configure LLM provider now? (will prompt for API token and details) [y/N]: " configure_llm
+            if [[ "${configure_llm,,}" =~ ^(y|yes)$ ]]; then
+                print_info "Executing: 03-create-olsconfig.sh"
+                if bash "${SCRIPT_DIR}/03-create-olsconfig.sh"; then
+                    print_info "✓ OLSConfig created"
+                    print_info "Wait 2-3 minutes, then run: ./lightspeed-setup/02-verify-console-integration.sh"
+                fi
+            else
+                print_info "Skipped. Run ./lightspeed-setup/03-create-olsconfig.sh when ready."
+            fi
+        else
+            print_info "To configure LLM: ./lightspeed-setup/03-create-olsconfig.sh (prompts for token and details)"
+        fi
+        echo ""
+    fi
+
     # Summary
     print_header "════════════════════════════════════════════════════════════"
     print_header "                    Setup Complete! ✓                       "
@@ -90,7 +110,7 @@ main() {
     print_info "OpenShift Lightspeed is installed with OpenShift console integration."
     echo ""
     print_info "Next steps:"
-    echo "  1. Create an OLSConfig with your LLM provider credentials"
+    echo "  1. If not done: ./lightspeed-setup/03-create-olsconfig.sh (prompts for API token and details)"
     echo "  2. Access Lightspeed from the OpenShift console:"
     echo "     - Open any resource (e.g. Deployment, Pod)"
     echo "     - Click 'Edit' in the YAML editor"
