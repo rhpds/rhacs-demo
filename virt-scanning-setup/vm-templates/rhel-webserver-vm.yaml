@@ -49,7 +49,7 @@ spec:
       volumes:
         - name: rootdisk
           containerDisk:
-            image: registry.redhat.io/rhel10/rhel-guest-image  # confirm exact tag if needed (e.g., :latest or :10.0)
+            image: registry.redhat.io/rhel10/rhel-guest-image  # add :10.0 or :latest if pulls fail
         - name: cloudinitdisk
           cloudInitNoCloud:
             userData: |-
@@ -66,27 +66,30 @@ spec:
 
               chpasswd:
                 list: |
-                  cloud-user:redhat
-                  admin:redhat
+                  cloud-user: redhat
+                  admin: redhat
                 expire: false
 
               ssh_pwauth: true
 
               write_files:
-                - path: /etc/ssh/sshd_config.d/zz-enable-password.conf
+                - path: /etc/ssh/sshd_config.d/10-force-password.conf
                   content: |
                     PasswordAuthentication yes
+                    ChallengeResponseAuthentication no   # optional: disable keyboard-interactive if you want pure password
                   permissions: '0600'
                   owner: root:root
 
               runcmd:
                 - rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf || true
+                - rm -f /etc/ssh/sshd_config.d/*cloud*.conf || true   # catch variations like 99- or rh-
                 - systemctl restart sshd
                 - firewall-cmd --permanent --add-service=ssh || true
                 - firewall-cmd --reload || true
-                - echo "Cloud-init completed - password should be set" >> /var/log/cloud-init-test.log
+                - echo "Cloud-init completed - passwords set, password auth forced" >> /var/log/cloud-init-custom.log
+                - sshd -T | grep -i passwordauthentication >> /var/log/cloud-init-custom.log  # debug: log effective setting
 
               output:
                 all: |-
                   tee -a /var/log/cloud-init-output.log
-              final_message: "System is up after $UPTIME seconds"
+              final_message: "cloud-init done after $UPTIME seconds - login as cloud-user / admin with redhat"
