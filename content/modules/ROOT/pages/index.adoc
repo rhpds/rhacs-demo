@@ -188,3 +188,20 @@ Access the RHACS Console from the *RHACS Console* tab in the right panel, or ope
 | *Username:* | {acs_portal_username}
 | *Password:* | {acs_portal_password}
 |===
+
+=== Bastion Host
+
+To access the bastion host, use the following SSH command:
+
+[source,sh,subs="attributes"]
+----
+ssh {openshift-base--bastion_ssh_user_name}@{openshift-base--bastion_public_hostname}
+----
+
+When prompted for a password, use:
+
+[source,text,subs="attributes"]
+----
+{openshift-base--bastion_ssh_password}
+----
+
