@@ -58,7 +58,7 @@ main() {
     fi
 
     # Gather credentials and config (interactive or from env)
-    local api_key="${OPENAI_API_KEY:-${LLM_API_KEY}}"
+    local api_key="${OPENAI_API_KEY:-${LLM_API_KEY:-}}"
     local provider="${LLM_PROVIDER:-}"
     local model="${LLM_MODEL:-}"
     local url="${LLM_URL:-}"
