@@ -48,7 +48,7 @@ display_banner() {
     echo ""
     echo "VM: rhel-webserver (Apache)"
     echo ""
-    echo "Requires RH_USERNAME/RH_PASSWORD for auto subscription registration."
+    echo "Use console after boot (login: cloud-user / redhat)."
     echo ""
     echo "⏱️  Total time: ~5 minutes"
     echo ""
@@ -164,7 +164,7 @@ step_deploy_sample_vms() {
         return 1
     fi
     
-    print_info "Deploying webserver VM (requires RH_USERNAME/RH_PASSWORD for subscription)..."
+    print_info "Deploying webserver VM..."
     
     if ! bash "${SCRIPT_DIR}/02-deploy-sample-vms.sh"; then
         print_error "Sample VMs deployment failed"
