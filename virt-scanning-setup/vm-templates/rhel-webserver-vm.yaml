@@ -53,43 +53,34 @@ spec:
         - name: cloudinitdisk
           cloudInitNoCloud:
             userData: |-
-              #cloud-config
-              hostname: rhel-web-01
-              fqdn: rhel-web-01.example.local
-
-              users:
-                - default
-                - name: admin
-                  lock_passwd: false
-                  sudo: ALL=(ALL) NOPASSWD:ALL
-                  groups: wheel
-
-              chpasswd:
-                list: |
-                  cloud-user: redhat
-                  admin: redhat
-                expire: false
-
-              ssh_pwauth: true
-
-              write_files:
-                - path: /etc/ssh/sshd_config.d/10-force-password.conf
-                  content: |
-                    PasswordAuthentication yes
-                    ChallengeResponseAuthentication no   # optional: disable keyboard-interactive if you want pure password
-                  permissions: '0600'
-                  owner: root:root
-
-              runcmd:
-                - rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf || true
-                - rm -f /etc/ssh/sshd_config.d/*cloud*.conf || true   # catch variations like 99- or rh-
-                - systemctl restart sshd
-                - firewall-cmd --permanent --add-service=ssh || true
-                - firewall-cmd --reload || true
-                - echo "Cloud-init completed - passwords set, password auth forced" >> /var/log/cloud-init-custom.log
-                - sshd -T | grep -i passwordauthentication >> /var/log/cloud-init-custom.log  # debug: log effective setting
-
-              output:
-                all: |-
-                  tee -a /var/log/cloud-init-output.log
-              final_message: "cloud-init done after $UPTIME seconds - login as cloud-user / admin with redhat"
+                  #cloud-config
+                  hostname: rhel-web-01
+                  fqdn: rhel-web-01.example.local
+            
+                  users:
+                    - default   # preserves cloud-user
+            
+                  chpasswd:
+                    list: |
+                      cloud-user: redhat
+                    expire: false
+            
+                  ssh_pwauth: true
+            
+                  # High-priority override for SSH (lex order: 05- beats 50-)
+                  write_files:
+                    - path: /etc/ssh/sshd_config.d/05-force-password.conf
+                      content: |
+                        PasswordAuthentication yes
+                      permissions: '0600'
+                      owner: root:root
+            
+                  runcmd:
+                    - systemctl restart sshd
+                    - firewall-cmd --permanent --add-service=ssh || true
+                    - firewall-cmd --reload || true
+                    - echo "Cloud-init ran - check /var/log/cloud-init.log" > /var/log/cloud-init-status.log
+                    - sshd -T | grep -i passwordauthentication >> /var/log/cloud-init-status.log  # debug SSH effective config
+                    - grep cloud-user /etc/shadow >> /var/log/cloud-init-status.log  # debug: show if password hash set
+            
+                  final_message: "cloud-init finished - try console/SSH as cloud-user:redhat"
