@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script: 02-deploy-sample-vms.sh
-# Description: Deploy RHEL webserver VM from template with Red Hat subscription registration
+# Description: Deploy RHEL webserver VM from rhel-webserver-vm.yaml (swaps credentials, applies)
 # Requires: RH_USERNAME/RH_PASSWORD for subscription, or --skip-subscription
 # Requires: 01-configure-rhacs.sh run first (RHACS + VSOCK)
 
@@ -21,7 +21,6 @@ print_step() { echo -e "${BLUE}[STEP]${NC} $*"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VM_TEMPLATE="${SCRIPT_DIR}/vm-templates/rhel-webserver-vm.yaml"
-VM_DEPLOY_TEMPLATE="${SCRIPT_DIR}/vm-templates/rhel-webserver-vm-deploy.yaml"
 VM_NAMESPACE="${VM_NAMESPACE:-default}"
 VM_NAME="${VM_NAME:-rhel-webserver}"
 SKIP_SUBSCRIPTION="${SKIP_SUBSCRIPTION:-false}"
@@ -44,7 +43,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: $0 [--username USER] [--password PASS] [--skip-subscription]"
             echo ""
-            echo "Deploys RHEL webserver VM with cloud-init (httpd, SSH password auth)."
+            echo "Deploys RHEL webserver VM from vm-templates/rhel-webserver-vm.yaml"
             echo ""
             echo "Options:"
             echo "  --username USER     Red Hat subscription username (or set RH_USERNAME)"
@@ -70,8 +69,8 @@ if ! oc whoami &>/dev/null; then
     exit 1
 fi
 
-if [ ! -f "${VM_TEMPLATE}" ] || [ ! -f "${VM_DEPLOY_TEMPLATE}" ]; then
-    print_error "VM templates not found in ${SCRIPT_DIR}/vm-templates/"
+if [ ! -f "${VM_TEMPLATE}" ]; then
+    print_error "VM template not found: ${VM_TEMPLATE}"
     exit 1
 fi
 
@@ -134,17 +133,31 @@ if [ "${SKIP_SUBSCRIPTION}" != "true" ]; then
         sed "s|<YOUR_REDHAT_PASSWORD>|${RH_PASSWORD}|g")
 fi
 
-# Create cloud-init secret
+# Create cloud-init secret (userData exceeds 2048 byte inline limit)
 CLOUD_INIT_SECRET="${VM_NAME}-cloud-init"
 print_step "Creating cloud-init secret ${CLOUD_INIT_SECRET}..."
 echo "${CLOUD_INIT_CONTENT}" | oc create secret generic "${CLOUD_INIT_SECRET}" -n "${VM_NAMESPACE}" \
     --from-file=userdata=/dev/stdin --dry-run=client -o yaml | oc apply -f -
 
-# Apply VM with secret reference
+# Replace inline userData with userDataSecretRef + networkData, swap namespace, apply
 print_step "Creating VM ${VM_NAME}..."
-sed -e "s/CLOUD_INIT_SECRET_NAME/${CLOUD_INIT_SECRET}/g" \
-    -e "s/namespace: default/namespace: ${VM_NAMESPACE}/g" \
-    "${VM_DEPLOY_TEMPLATE}" | oc apply -f -
+awk -v secret="${CLOUD_INIT_SECRET}" '
+    /cloudInitNoCloud:/ { in_cloud=1; print; next }
+    in_cloud && /userData: \|-/ {
+        print "            userDataSecretRef:"
+        print "              name: " secret
+        print "            networkData: |"
+        print "              version: 2"
+        print "              ethernets:"
+        print "                enp1s0:"
+        print "                  dhcp4: true"
+        in_block=1
+        next
+    }
+    in_block && /^[ ]{0,12}[^ ]/ { in_block=0; in_cloud=0 }
+    in_block { next }
+    { print }
+' "${VM_TEMPLATE}" | sed "s/namespace: default/namespace: ${VM_NAMESPACE}/g" | oc apply -f -
 
 print_info "✓ VM ${VM_NAME} created and starting"
 echo ""
