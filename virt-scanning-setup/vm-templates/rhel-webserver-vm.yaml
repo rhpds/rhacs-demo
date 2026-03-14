@@ -2,14 +2,14 @@ apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
   name: rhel-webserver
-  namespace: default
+  namespace: default  # change if needed
   annotations:
-    description: RHEL webserver VM with cloud-init password access + auto-subscription via activation key
+    description: RHEL webserver VM with cloud-init password access
   labels:
     app: rhel-webserver
-    os.template.kubevirt.io/rhel10: 'true'
+    os.template.kubevirt.io/rhel10: 'true' 
 spec:
-  runStrategy: Always
+  runStrategy: Always  
   template:
     metadata:
       annotations:
@@ -49,7 +49,7 @@ spec:
       volumes:
         - name: rootdisk
           containerDisk:
-            image: registry.redhat.io/rhel10/rhel-guest-image:latest
+            image: registry.redhat.io/rhel10/rhel-guest-image  # confirm exact tag if needed (e.g., :latest or :10.0)
         - name: cloudinitdisk
           cloudInitNoCloud:
             userData: |-
@@ -59,22 +59,17 @@ spec:
 
               users:
                 - default
-                - name: cloud-user
+                - name: admin
                   lock_passwd: false
                   sudo: ALL=(ALL) NOPASSWD:ALL
                   groups: wheel
 
               chpasswd:
                 list: |
-                  cloud-user:redhat
+                  admin:redhat
                 expire: false
 
               ssh_pwauth: true
-
-              # Auto-register using activation key (non-interactive, secure)
-              rh_subscription:
-                activation-key: 5ebbcda9-eb10-4131-8dd7-8697290c6850   
-                org: 18053516     
 
               write_files:
                 - path: /etc/ssh/sshd_config.d/zz-enable-password.conf
@@ -89,8 +84,6 @@ spec:
                 - firewall-cmd --permanent --add-service=ssh || true
                 - firewall-cmd --reload || true
                 - echo "Cloud-init completed - password should be set" >> /var/log/cloud-init-test.log
-                # Optional debug: log subscription status after registration
-                - subscription-manager status > /var/log/subscription-status.log 2>&1 || true
 
               output:
                 all: |-

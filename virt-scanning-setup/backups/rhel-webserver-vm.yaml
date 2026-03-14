@@ -59,14 +59,14 @@ spec:
 
               users:
                 - default
-                - name: cloud-user
+                - name: admin
                   lock_passwd: false
                   sudo: ALL=(ALL) NOPASSWD:ALL
                   groups: wheel
 
               chpasswd:
                 list: |
-                  cloud-user:redhat
+                  admin:redhat
                 expire: false
 
               ssh_pwauth: true
