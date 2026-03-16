@@ -34,6 +34,24 @@ oc apply -f monitoring-examples/cluster-observability-operator/subscription.yaml
 log "✓ Cluster Observability Operator subscription created"
 
 echo ""
+log "Waiting for MonitoringStack CRD to become available (operator must install first)..."
+max_wait=300
+elapsed=0
+while [ $elapsed -lt $max_wait ]; do
+  if oc get crd 2>/dev/null | grep -qi monitoringstack; then
+    log "✓ MonitoringStack CRD available"
+    break
+  fi
+  log "  Waiting... (${elapsed}s/${max_wait}s)"
+  sleep 15
+  elapsed=$((elapsed + 15))
+done
+if [ $elapsed -ge $max_wait ]; then
+  warn "MonitoringStack CRD not ready after ${max_wait}s - operator may still be installing"
+  warn "Retrying monitoring-stack apply..."
+fi
+
+echo ""
 log "Installing and configuring monitoring stack instance..."
 oc apply -f monitoring-examples/cluster-observability-operator/monitoring-stack.yaml
 log "✓ MonitoringStack created"

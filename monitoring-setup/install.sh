@@ -55,6 +55,18 @@ echo ""
 log "Starting installation..."
 echo ""
 
+# Load ROX_CENTRAL_URL and ROX_API_TOKEN from ~/.bashrc if not already set
+if [ -f ~/.bashrc ]; then
+  if [ -z "${ROX_CENTRAL_URL:-}" ]; then
+    line=$(grep -E "^(export[[:space:]]+)?ROX_CENTRAL_URL=" ~/.bashrc 2>/dev/null | head -1)
+    [ -n "$line" ] && eval "$line"
+  fi
+  if [ -z "${ROX_API_TOKEN:-}" ]; then
+    line=$(grep -E "^(export[[:space:]]+)?ROX_API_TOKEN=" ~/.bashrc 2>/dev/null | head -1)
+    [ -n "$line" ] && eval "$line"
+  fi
+fi
+
 # Check required environment variables
 MISSING_VARS=0
 
