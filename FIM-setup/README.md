@@ -23,9 +23,8 @@ export ROX_API_TOKEN='your-api-token'
 ## What It Does
 
 1. **Submits FIM policy** – Creates or updates the `FIM-basic-monitoring` policy in ACS that monitors:
-   - `/etc/passwd` (any change)
-   - `/etc/sudoers` (CREATE)
-   - `/etc/sudoers.test` (CREATE) – used by the trigger loop
+   - `/etc/sudoers` (the file) – alerts on CREATE or MODIFY to detect unauthorized changes
+   - Note: `/etc/sudoers.d/` is a directory for drop-in configs; the policy protects the main sudoers file
 
 2. **Runs FIM trigger loop** – Uses `oc debug node/<worker>` to run a loop on a worker node that creates `/etc/sudoers.test` every ~60 seconds, triggering FIM violations in ACS.
 

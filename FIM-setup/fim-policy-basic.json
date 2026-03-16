@@ -3,8 +3,8 @@
         {
             "id": "15aeb057-cd3a-4f2a-9af6-b6bc79f85e5e",
             "name": "FIM-basic-monitoring",
-            "description": "Monitors unauthorized file activity on critical host system files (/etc/passwd and /etc/sudoers) to detect potential privilege escalation or persistence attacks on nodes.",
-            "rationale": "Changes to /etc/passwd can allow attackers to add rogue users or modify authentication data, while modifications to /etc/sudoers can grant elevated privileges without authorization. Monitoring these paths helps identify host-level compromise attempts, backdoors, or lateral movement in Kubernetes clusters.",
+            "description": "Monitors the /etc/sudoers file to detect unauthorized modifications. The sudoers file controls who can run commands with elevated privileges; /etc/sudoers.d/ is a directory for drop-in configs.",
+            "rationale": "Modifications to /etc/sudoers can grant elevated privileges without authorization. The file must not be touched by unauthorized processes. Monitoring helps identify privilege escalation attempts, backdoors, or host-level compromise.",
             "remediation": "Investigate the process and container (if applicable) that triggered the violation. Review node logs and process trees for suspicious activity. Revert any unauthorized changes (e.g., restore from backup or correct user/group/permissions). If a container breakout is suspected, isolate the workload, scan for malware, and apply stricter volume mount policies. Update notifiers for faster alerting and consider adding exclusions for known legitimate processes if false positives occur.",
             "disabled": false,
             "categories": [
@@ -26,22 +26,7 @@
             "policyVersion": "1.1",
             "policySections": [
                 {
-                    "sectionName": "Rule 1",
-                    "policyGroups": [
-                        {
-                            "fieldName": "Actual Path",
-                            "booleanOperator": "OR",
-                            "negate": false,
-                            "values": [
-                                {
-                                    "value": "/etc/passwd"
-                                }
-                            ]
-                        }
-                    ]
-                },
-                {
-                    "sectionName": "Rule 2",
+                    "sectionName": "Sudoers file protection",
                     "policyGroups": [
                         {
                             "fieldName": "Actual Path",
@@ -60,6 +45,9 @@
                             "values": [
                                 {
                                     "value": "CREATE"
+                                },
+                                {
+                                    "value": "MODIFY"
                                 }
                             ]
                         }
