@@ -37,19 +37,6 @@
                                     "value": "/etc/sudoers"
                                 }
                             ]
-                        },
-                        {
-                            "fieldName": "File Operation",
-                            "booleanOperator": "OR",
-                            "negate": false,
-                            "values": [
-                                {
-                                    "value": "CREATE"
-                                },
-                                {
-                                    "value": "MODIFY"
-                                }
-                            ]
                         }
                     ]
                 }
