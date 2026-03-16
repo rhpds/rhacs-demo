@@ -103,11 +103,11 @@ log "Checking for existing 'Monitoring' auth provider..."
 if command -v jq &>/dev/null; then
   EXISTING_AUTH_ID=$(curl -k -s "$ROX_CENTRAL_URL/v1/authProviders" \
     -H "Authorization: Bearer $ROX_API_TOKEN" | \
-    jq -r '.authProviders[]? | select(.name=="Monitoring") | .id' 2>/dev/null)
+    jq -r '.authProviders[]? | select(.name=="Monitoring") | .id' 2>/dev/null) || EXISTING_AUTH_ID=""
 else
   EXISTING_AUTH_ID=$(curl -k -s "$ROX_CENTRAL_URL/v1/authProviders" \
     -H "Authorization: Bearer $ROX_API_TOKEN" | \
-    grep -B2 '"name":"Monitoring"' | grep '"id"' | cut -d'"' -f4)
+    grep -B2 '"name":"Monitoring"' | grep '"id"' | cut -d'"' -f4) || EXISTING_AUTH_ID=""
 fi
 
 # Delete if exists
@@ -127,7 +127,7 @@ AUTH_PROVIDER_RESPONSE=$(curl -k -s -X POST "$ROX_CENTRAL_URL/v1/authProviders" 
   --data-raw "$(envsubst < monitoring-examples/rhacs/auth-provider.json.tpl)")
 
 # Extract the auth provider ID from the response (try multiple patterns)
-export AUTH_PROVIDER_ID=$(echo "$AUTH_PROVIDER_RESPONSE" | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/"id"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
+export AUTH_PROVIDER_ID=$(echo "$AUTH_PROVIDER_RESPONSE" | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/"id"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/' 2>/dev/null) || true
 
 # If grep/sed didn't work, try jq if available
 if [ -z "$AUTH_PROVIDER_ID" ] && command -v jq &>/dev/null; then
@@ -193,7 +193,7 @@ if [ -n "$AUTH_PROVIDER_ID" ]; then
     echo ""
     warn "Attempting to verify if group exists..."
     EXISTING_GROUPS=$(curl -k -s -H "Authorization: Bearer $ROX_API_TOKEN" "$ROX_CENTRAL_URL/v1/groups" | \
-      grep -A10 "$AUTH_PROVIDER_ID" || echo "")
+      grep -A10 "$AUTH_PROVIDER_ID" 2>/dev/null) || EXISTING_GROUPS=""
     
     if [ -n "$EXISTING_GROUPS" ]; then
       log "✓ Found existing group for this auth provider"
@@ -224,7 +224,8 @@ if [ -n "$AUTH_PROVIDER_ID" ]; then
     fi
   fi
 else
-  error "Failed to extract auth provider ID"
+  error "Failed to extract auth provider ID from API response"
+  error "API response: $AUTH_PROVIDER_RESPONSE"
   error "You may need to configure the group manually"
   exit 1
 fi
