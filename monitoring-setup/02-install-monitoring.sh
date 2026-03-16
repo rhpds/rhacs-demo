@@ -9,11 +9,13 @@ set -euo pipefail
 # Colors for output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
 log() { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $1"; }
 step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 
 # Get the script directory
@@ -34,27 +36,29 @@ oc apply -f monitoring-examples/cluster-observability-operator/subscription.yaml
 log "✓ Cluster Observability Operator subscription created"
 
 echo ""
-log "Waiting for MonitoringStack CRD to become available (operator must install first)..."
+log "Installing and configuring monitoring stack instance..."
+MONITORING_STACK_YAML="monitoring-examples/cluster-observability-operator/monitoring-stack.yaml"
 max_wait=300
 elapsed=0
 while [ $elapsed -lt $max_wait ]; do
-  if oc get crd 2>/dev/null | grep -qi monitoringstack; then
-    log "✓ MonitoringStack CRD available"
+  if out=$(oc apply -f "$MONITORING_STACK_YAML" 2>&1); then
+    echo "$out"
+    log "✓ MonitoringStack created"
     break
   fi
-  log "  Waiting... (${elapsed}s/${max_wait}s)"
-  sleep 15
-  elapsed=$((elapsed + 15))
+  if echo "$out" | grep -qE "no matches for kind \"MonitoringStack\"|ensure CRDs are installed first"; then
+    log "  Waiting for operator CRDs... (${elapsed}s/${max_wait}s)"
+    sleep 15
+    elapsed=$((elapsed + 15))
+  else
+    echo "$out" >&2
+    exit 1
+  fi
 done
 if [ $elapsed -ge $max_wait ]; then
-  warn "MonitoringStack CRD not ready after ${max_wait}s - operator may still be installing"
-  warn "Retrying monitoring-stack apply..."
+  error "MonitoringStack apply failed after ${max_wait}s - operator may not be ready"
+  exit 1
 fi
-
-echo ""
-log "Installing and configuring monitoring stack instance..."
-oc apply -f monitoring-examples/cluster-observability-operator/monitoring-stack.yaml
-log "✓ MonitoringStack created"
 
 oc apply -f monitoring-examples/cluster-observability-operator/scrape-config.yaml
 log "✓ ScrapeConfig created"
