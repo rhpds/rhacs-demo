@@ -64,31 +64,6 @@
                             ]
                         }
                     ]
-                },
-                {
-                    "sectionName": "Rule 3",
-                    "policyGroups": [
-                        {
-                            "fieldName": "Actual Path",
-                            "booleanOperator": "OR",
-                            "negate": false,
-                            "values": [
-                                {
-                                    "value": "/etc/sudoers.test"
-                                }
-                            ]
-                        },
-                        {
-                            "fieldName": "File Operation",
-                            "booleanOperator": "OR",
-                            "negate": false,
-                            "values": [
-                                {
-                                    "value": "CREATE"
-                                }
-                            ]
-                        }
-                    ]
                 }
             ],
             "mitreAttackVectors": [],

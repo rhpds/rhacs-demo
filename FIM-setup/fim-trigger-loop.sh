@@ -7,14 +7,10 @@ while true; do
     COUNT=$((COUNT + 1))
     TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
-    # Create a test file that matches your policy path/operation (CREATE + optional write)
-    echo "# Test FIM trigger $COUNT at $TIMESTAMP" > /etc/sudoers.test
-    echo "testuser ALL=(ALL) NOPASSWD:ALL  # simulated" >> /etc/sudoers.test
+    # Trigger Rule 1: touch /etc/passwd to generate MODIFY event (Rule 1 has no File Operation filter)
+    touch /etc/passwd
 
-    echo "[$TIMESTAMP] Triggered CREATE/WRITE on /etc/sudoers.test (#$COUNT) - check ACS for alert"
-
-    # Optional: Immediately remove to simulate quick attack + cleanup (still triggers CREATE)
-    # rm -f /etc/sudoers.test
+    echo "[$TIMESTAMP] Triggered MODIFY on /etc/passwd (#$COUNT) - check ACS for alert"
 
     sleep 60  # Adjust to 30 or 120 if you want faster/slower
 done
