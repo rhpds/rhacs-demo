@@ -109,7 +109,7 @@ fi
 echo ""
 
 #=============================================================================
-# Step 2: Check Prometheus scrape config and in-cluster connectivity
+# Step 2: Check Prometheus scrape config and scrape status
 #=============================================================================
 step "2. Prometheus scrape configuration"
 echo ""
@@ -118,13 +118,28 @@ if oc get scrapeconfig sample-stackrox-scrape-config -n stackrox &>/dev/null; th
   ok "ScrapeConfig exists"
   log "  Target: $CENTRAL_INTERNAL"
   log "  Secret: sample-stackrox-prometheus-tls"
+  if oc get scrapeconfig sample-stackrox-scrape-config -n stackrox -o yaml | grep -q "insecureSkipVerify: true"; then
+    ok "insecureSkipVerify: true (bypasses server cert verification)"
+  else
+    warn "ScrapeConfig may need insecureSkipVerify: true if service-ca doesn't match Central's cert"
+    echo "  Re-apply: oc apply -f monitoring-examples/cluster-observability-operator/scrape-config.yaml"
+  fi
 else
   fail "ScrapeConfig not found"
   echo "  Run: ./02-install-monitoring.sh"
 fi
 
-log "  To test from inside cluster (like Prometheus does):"
-echo "    oc run curl-test --rm -it --image=curlimages/curl -n stackrox -- wget -qO- https://central.stackrox.svc.cluster.local:443/"
+# Check service-ca secret (required for TLS verification without insecureSkipVerify)
+if oc get secret service-ca -n stackrox &>/dev/null; then
+  ok "Secret service-ca exists"
+else
+  warn "Secret service-ca not found - ScrapeConfig may fail TLS verification"
+  echo "  Ensure insecureSkipVerify: true in scrape-config.yaml"
+fi
+
+log ""
+log "To test from inside cluster (like Prometheus does):"
+echo "  oc run curl-test --rm -it --image=curlimages/curl -n stackrox -- wget -qO- https://central.stackrox.svc.cluster.local:443/"
 echo ""
 
 #=============================================================================
@@ -137,10 +152,25 @@ PROM_SVC="sample-stackrox-monitoring-stack-prometheus"
 if oc get svc -n stackrox "$PROM_SVC" &>/dev/null; then
   ok "Prometheus service exists: $PROM_SVC"
 
-  log "Port-forwarding to Prometheus (run in another terminal to query):"
+  log "Checking Prometheus logs for scrape errors..."
+  PROM_POD=$(oc get pod -n stackrox -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || \
+    oc get pod -n stackrox -l app=prometheus -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  PROM_LOGS=""
+  if [ -n "$PROM_POD" ]; then
+    PROM_LOGS=$(oc logs -n stackrox "$PROM_POD" --tail=100 2>/dev/null | grep -iE "stackrox|central|sample-stackrox|error|failed" || true)
+  fi
+  if [ -n "$PROM_LOGS" ]; then
+    warn "Recent Prometheus log lines mentioning stackrox/central/error:"
+    echo "$PROM_LOGS" | head -10 | sed 's/^/    /'
+  else
+    ok "No obvious scrape errors in recent logs"
+  fi
+
+  log ""
+  log "Port-forward to check targets:"
   echo "  oc port-forward -n stackrox svc/$PROM_SVC 9090:9090"
   echo ""
-  log "Then check targets:"
+  log "Then check targets (look for sample-stackrox-metrics, health up/down):"
   echo "  curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.job | contains(\"stackrox\")) | {job, health, lastError}'"
   echo ""
   log "Or open: http://localhost:9090/targets"

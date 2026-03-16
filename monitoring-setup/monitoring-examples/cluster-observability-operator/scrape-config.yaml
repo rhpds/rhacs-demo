@@ -13,6 +13,7 @@ spec:
     - targets:
         - "central.stackrox.svc.cluster.local:443"
   tlsConfig:
+    insecureSkipVerify: true
     ca:
       secret:
         key: ca.pem

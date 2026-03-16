@@ -333,7 +333,16 @@ kubectl logs -n stackrox -l app.kubernetes.io/name=prometheus -f
 
 ## Troubleshooting
 
-### Issue: Dashboard shows "No data"
+### Issue: Dashboard shows "No data" (endpoints work locally but Prometheus not scraping)
+
+If `curl --cert client.crt --key client.key -k $ROX_CENTRAL_URL/metrics` works but the dashboard shows no data, Prometheus may be failing TLS verification when scraping Central. The ScrapeConfig includes `insecureSkipVerify: true` to bypass server cert verification. Re-apply the scrape config:
+
+```bash
+oc apply -f monitoring-examples/cluster-observability-operator/scrape-config.yaml
+# Restart Prometheus to pick up changes (if needed)
+oc rollout restart statefulset -n stackrox -l app.kubernetes.io/name=prometheus 2>/dev/null || \
+oc rollout restart deployment -n stackrox -l app.kubernetes.io/name=prometheus 2>/dev/null || true
+```
 
 Run the debug script to test connectivity at each step (RHACS → Prometheus → Perses):
 
