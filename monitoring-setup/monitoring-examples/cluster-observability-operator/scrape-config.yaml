@@ -8,6 +8,7 @@ metadata:
 spec:
   jobName: sample-stackrox-metrics
   scheme: HTTPS
+  metricsPath: /metrics
   staticConfigs:
     - targets:
         - "central.stackrox.svc.cluster.local:443"

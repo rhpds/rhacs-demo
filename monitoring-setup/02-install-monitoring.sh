@@ -30,6 +30,22 @@ echo ""
 log "Switching to stackrox namespace..."
 oc project stackrox
 
+# Per RHACS 4.10 docs 15.2.1: Disable OpenShift monitoring when using custom Prometheus
+# https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.10/html/configuring/monitor-acs
+CENTRAL_CR=$(oc get central -n stackrox -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+if [ -n "$CENTRAL_CR" ]; then
+  log "Disabling OpenShift monitoring on Central (required for custom Prometheus)..."
+  if oc patch central "$CENTRAL_CR" -n stackrox --type=merge -p='{"spec":{"monitoring":{"openshift":{"enabled":false}}}}' 2>/dev/null; then
+    log "✓ OpenShift monitoring disabled"
+  elif oc patch central "$CENTRAL_CR" -n stackrox --type=merge -p='{"spec":{"central":{"monitoring":{"openshift":{"enabled":false}}}}}' 2>/dev/null; then
+    log "✓ OpenShift monitoring disabled"
+  else
+    warn "Could not patch Central CR - ensure monitoring.openshift.enabled: false is set manually"
+  fi
+else
+  warn "Central CR not found - skip disabling OpenShift monitoring (Helm/other install)"
+fi
+
 echo ""
 log "Installing Cluster Observability Operator..."
 oc apply -f monitoring-examples/cluster-observability-operator/subscription.yaml

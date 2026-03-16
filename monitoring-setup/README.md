@@ -6,6 +6,10 @@ This directory contains scripts and configurations to set up monitoring for Red 
 
 The monitoring setup enables Prometheus to scrape metrics from RHACS Central API service on the `/metrics` endpoint (port 443/HTTPS). The access requires proper authentication and authorization.
 
+This setup aligns with:
+- [RHACS 4.10 Monitoring documentation](https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.10/html/configuring/monitor-acs) (15.2.1, 15.4.3, 15.4.4)
+- [stackrox/monitoring-examples](https://github.com/stackrox/monitoring-examples) (cluster-observability-operator, perses, rhacs)
+
 ## Prerequisites
 
 - OpenShift or Kubernetes cluster with RHACS installed
@@ -67,9 +71,10 @@ The installation is broken into three modular scripts:
    - Exports TLS_CERT environment variable
 
 2. **`02-install-monitoring.sh`** - Monitoring Stack Installation
+   - Disables OpenShift monitoring on Central (per docs 15.2.1)
    - Installs Cluster Observability Operator subscription
    - Deploys MonitoringStack (Prometheus + Alertmanager)
-   - Configures ScrapeConfig for RHACS metrics
+   - Configures ScrapeConfig for RHACS metrics (scheme HTTPS, metrics_path /metrics)
    - Installs Perses UI plugin, datasource, and dashboard
 
 3. **`03-configure-rhacs-auth.sh`** - RHACS Authentication Configuration
