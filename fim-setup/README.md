@@ -17,30 +17,25 @@ export ROX_API_TOKEN='your-api-token'
 # ROX_CENTRAL_URL is auto-detected from cluster route
 
 # Run the install script
-./install-fim.sh
+./install.sh
 ```
 
 ## What It Does
 
-1. **Submits FIM policy** – Creates or updates the `FIM-basic-monitoring` policy in ACS that monitors:
-   - `/etc/passwd` – alerts on ownership changes or modifications
-   - `/etc/sudoers` – alerts on ownership changes or modifications
+1. **Enables file activity monitoring** – Patches the SecuredCluster to enable FIM (`fileActivityMonitoring.mode: Enabled`).
+2. **Submits FIM policies** – Creates or updates:
+   - `FIM-basic-monitoring` – monitors `/etc/passwd` and `/etc/sudoers` for modifications
+   - `fim-basic-deploy-monitoring` – monitors deployments for changes to `/etc/passwd`
 
-2. **Runs FIM trigger loop** – Uses `oc debug node/<worker>` to run a loop on a worker node that creates `/etc/sudoers.test` every ~60 seconds, triggering FIM violations in ACS.
-
-## Manual Trigger (if auto-start fails)
+## Trigger FIM Violations (run after install)
 
 ```bash
-# 1. Get a worker node name
-oc get nodes -l node-role.kubernetes.io/worker
-
-# 2. Debug into the node
+# 1. Start a debug session on a worker node
 oc debug node/<worker-node-name>
 
-# 3. In the debug shell, run:
+# 2. Inside the debug pod, run:
 chroot /host
-
-# 4. Paste and run the contents of fim-trigger-loop.sh
+touch /etc/passwd    # Triggers FIM-basic-monitoring
 ```
 
 ## Note on Policy-as-Code
@@ -51,9 +46,9 @@ FIM (File Integrity Monitoring) policies use `eventSource: NODE_EVENT`, which is
 
 | File | Description |
 |------|-------------|
-| `fim-policy-basic.json` | FIM policy definition (submitted via API) |
-| `fim-trigger-loop.sh` | Loop script that creates /etc/sudoers.test every 60s |
-| `install-fim.sh` | Main script – submits policy via API and starts trigger loop |
+| `fim-policy-basic.json` | FIM policy for node events (submitted via API) |
+| `fim-basic-deploy-monitoring.json` | FIM policy for deployment events (submitted via API) |
+| `install.sh` | Main script – enables FIM, submits policies, prints trigger commands |
 
 ## View Violations
 

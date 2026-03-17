@@ -188,6 +188,7 @@ cd ~/rhacs-demo/fim-setup
 git pull && ./install.sh
 ----
 
+. To trigger FIM violations for demonstration, run the commands printed at the end of the install (or: `oc debug node/<worker>` → `chroot /host` → `touch /etc/passwd`).
 . View violations in RHACS UI: *Violations* → filter by policy *FIM-basic-monitoring*.
 * Full documentation: `~/rhacs-demo/fim-setup/README.md`
 

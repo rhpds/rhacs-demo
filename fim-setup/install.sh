@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script: install-fim.sh
-# Description: Submit FIM policy to ACS via API and run the FIM trigger loop on a worker node
+# Description: Enable FIM on SecuredCluster and submit FIM policies to ACS via API
 # Requires: ROX_CENTRAL_URL (or auto-detect), ROX_API_TOKEN, oc logged in, jq
 
 set -euo pipefail
@@ -22,7 +22,6 @@ FIM_POLICIES=(
     "${SCRIPT_DIR}/fim-policy-basic.json"
     "${SCRIPT_DIR}/fim-basic-deploy-monitoring.json"
 )
-FIM_TRIGGER_SCRIPT="${SCRIPT_DIR}/fim-trigger-loop.sh"
 RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
 
 # Get Central URL
@@ -52,11 +51,6 @@ for policy_file in "${FIM_POLICIES[@]}"; do
         exit 1
     fi
 done
-
-if [ ! -f "${FIM_TRIGGER_SCRIPT}" ]; then
-    print_error "FIM trigger script not found: ${FIM_TRIGGER_SCRIPT}"
-    exit 1
-fi
 
 if [ -z "${ROX_API_TOKEN:-}" ]; then
     print_error "ROX_API_TOKEN is required. Set it: export ROX_API_TOKEN='your-token'"
@@ -144,49 +138,21 @@ done
 echo ""
 
 #================================================================
-# Step 3: Run FIM trigger loop on a worker node
+# Next steps: Trigger FIM violations (run manually after install)
 #================================================================
-print_step "3. Starting FIM trigger loop on worker node..."
-
-# Get first worker node
 WORKER_NODE=$(oc get nodes -l node-role.kubernetes.io/worker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || \
-    oc get nodes -o jsonpath='{.items[?(@.metadata.labels.node-role\.kubernetes\.io/worker=="" || @.metadata.labels.node-role\.kubernetes\.io/worker=="true")].metadata.name}' 2>/dev/null | awk '{print $1}' || \
-    oc get nodes -o jsonpath='{.items[1].metadata.name}' 2>/dev/null)
+    oc get nodes -o jsonpath='{.items[1].metadata.name}' 2>/dev/null || echo "worker-0")
 
-if [ -z "${WORKER_NODE}" ]; then
-    print_warn "Could not find worker node"
-    print_info "Run manually:"
-    echo ""
-    echo "  oc debug node/<worker-node-name>"
-    echo "  chroot /host"
-    echo "  # Then paste and run:"
-    cat "${FIM_TRIGGER_SCRIPT}"
-    echo ""
-    exit 0
-fi
-
-print_info "Using node: ${WORKER_NODE}"
-print_info "Starting oc debug with FIM trigger loop (runs in background)..."
+print_step "FIM setup complete"
 echo ""
-
-# Run oc debug with the trigger script piped into chroot
-# The loop runs in background so the script returns (nohup keeps it running after script exits)
-nohup oc debug "node/${WORKER_NODE}" -- chroot /host bash -s < "${FIM_TRIGGER_SCRIPT}" > /tmp/fim-trigger.log 2>&1 &
-DEBUG_PID=$!
-disown $DEBUG_PID 2>/dev/null || true
-
-sleep 5
-if kill -0 $DEBUG_PID 2>/dev/null; then
-    print_info "✓ FIM trigger loop running in background (pid: ${DEBUG_PID})"
-    print_info "  Violations will appear in ACS every ~60 seconds"
-    print_info "  Check: RHACS UI → Violations → Policy: FIM-basic-monitoring"
-    echo ""
-    print_info "To stop: kill ${DEBUG_PID}"
-else
-    print_warn "Debug pod may have exited. Run manually:"
-    echo ""
-    echo "  oc debug node/${WORKER_NODE}"
-    echo "  chroot /host"
-    echo "  # Then paste and run the contents of: ${FIM_TRIGGER_SCRIPT}"
-    echo ""
-fi
+print_info "To trigger FIM violations for demonstration, run these commands:"
+echo ""
+echo "  1. Start a debug session on a worker node:"
+echo "     oc debug node/${WORKER_NODE}"
+echo ""
+echo "  2. Inside the debug pod, run:"
+echo "     chroot /host"
+echo "     touch /etc/passwd    # Triggers FIM-basic-monitoring"
+echo ""
+print_info "View violations in RHACS UI: Violations → filter by policy FIM-basic-monitoring"
+echo ""
