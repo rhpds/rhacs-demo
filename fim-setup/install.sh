@@ -71,9 +71,38 @@ CENTRAL_URL=$(get_central_url) || {
 API_BASE="${CENTRAL_URL}/v1"
 
 #================================================================
-# Step 1: Submit FIM policy to ACS via API
+# Step 1: Enable file activity monitoring on SecuredCluster
 #================================================================
-print_step "1. Submitting FIM policy to ACS via API..."
+print_step "1. Enabling file activity monitoring on SecuredCluster..."
+
+SC_NAME=$(oc get securedcluster -n "${RHACS_NAMESPACE}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+if [ -z "${SC_NAME}" ]; then
+    print_error "No SecuredCluster found in ${RHACS_NAMESPACE}"
+    exit 1
+fi
+
+print_info "Patching SecuredCluster ${SC_NAME}..."
+if ! oc patch securedcluster "${SC_NAME}" \
+    -n "${RHACS_NAMESPACE}" \
+    --type=merge \
+    -p '{"spec":{"perNode":{"fileActivityMonitoring":{"mode":"Enabled"}}}}' 2>/dev/null; then
+    print_error "Failed to patch SecuredCluster"
+    exit 1
+fi
+
+# Verify patch was applied
+FIM_MODE=$(oc get securedcluster "${SC_NAME}" -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.perNode.fileActivityMonitoring.mode}' 2>/dev/null || echo "")
+if [ "${FIM_MODE}" != "Enabled" ]; then
+    print_error "Patch verification failed: fileActivityMonitoring.mode is '${FIM_MODE}', expected 'Enabled'"
+    exit 1
+fi
+print_info "✓ File activity monitoring enabled (verified)"
+echo ""
+
+#================================================================
+# Step 2: Submit FIM policy to ACS via API
+#================================================================
+print_step "2. Submitting FIM policy to ACS via API..."
 
 # Extract first policy, remove id for create (server will assign)
 POLICY_JSON=$(jq '.policies[0] | del(.id, .lastUpdated)' "${FIM_POLICY}")
@@ -111,9 +140,9 @@ print_info "✓ FIM policy submitted to ACS"
 echo ""
 
 #================================================================
-# Step 2: Run FIM trigger loop on a worker node
+# Step 3: Run FIM trigger loop on a worker node
 #================================================================
-print_step "2. Starting FIM trigger loop on worker node..."
+print_step "3. Starting FIM trigger loop on worker node..."
 
 # Get first worker node
 WORKER_NODE=$(oc get nodes -l node-role.kubernetes.io/worker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || \
