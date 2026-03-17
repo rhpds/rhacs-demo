@@ -420,15 +420,14 @@ configure_rhacs_vm_scanning() {
         central_env=$(oc get central "${central_cr_name}" -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.central.customize.env}' 2>/dev/null || echo "[]")
         if ! echo "${central_env}" | grep -q "ROX_VIRTUAL_MACHINES"; then
             print_info "Patching Central with ROX_VIRTUAL_MACHINES=true..."
-            oc patch central "${central_cr_name}" -n "${RHACS_NAMESPACE}" --type=merge -p '{"spec":{"central":{"customize":{"env":[{"name":"ROX_VIRTUAL_MACHINES","value":"true"}]}}}}' 2>/dev/null || \
-            oc set env deployment/central -n "${RHACS_NAMESPACE}" ROX_VIRTUAL_MACHINES=true 2>/dev/null || true
+            oc patch central "${central_cr_name}" -n "${RHACS_NAMESPACE}" --type=merge -p '{"spec":{"central":{"customize":{"env":[{"name":"ROX_VIRTUAL_MACHINES","value":"true"}]}}}}' 2>/dev/null || true
         fi
-    else
-        local deploy_val
-        deploy_val=$(oc get deployment central -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="central")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
-        if [ "${deploy_val}" != "true" ]; then
-            oc set env deployment/central -n "${RHACS_NAMESPACE}" ROX_VIRTUAL_MACHINES=true 2>/dev/null || true
-        fi
+    fi
+    local central_val
+    central_val=$(oc get deployment central -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="central")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
+    if [ "${central_val}" != "true" ]; then
+        print_info "Central deployment missing ROX_VIRTUAL_MACHINES - patching deployment directly..."
+        oc set env deployment/central -n "${RHACS_NAMESPACE}" ROX_VIRTUAL_MACHINES=true 2>/dev/null || true
     fi
     
     # 2. Sensor deployment and 3. Compliance container in Collector daemonset
@@ -438,7 +437,7 @@ configure_rhacs_vm_scanning() {
     if [ -n "${sc_list}" ]; then
         while IFS=/ read -r sc_namespace sc_name; do
             [ -z "${sc_name}" ] && continue
-            # Sensor
+            # Sensor: patch CR first, then ensure deployment has env (operator may not propagate CR to deployment)
             local sensor_env
             sensor_env=$(oc get securedcluster "${sc_name}" -n "${sc_namespace}" -o jsonpath='{.spec.customize.env}' 2>/dev/null || echo "[]")
             if ! echo "${sensor_env}" | grep -q "ROX_VIRTUAL_MACHINES"; then
@@ -451,9 +450,15 @@ configure_rhacs_vm_scanning() {
                       ]
                     }
                   }
-                }' 2>/dev/null || oc set env deployment/sensor -n "${sc_namespace}" ROX_VIRTUAL_MACHINES=true 2>/dev/null || true
+                }' 2>/dev/null || true
             fi
-            # Collector: try SecuredCluster perNode.collector.customize first
+            local sensor_val
+            sensor_val=$(oc get deployment sensor -n "${sc_namespace}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="sensor")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
+            if [ "${sensor_val}" != "true" ]; then
+                print_info "Sensor deployment missing ROX_VIRTUAL_MACHINES - patching deployment directly..."
+                oc set env deployment/sensor -n "${sc_namespace}" ROX_VIRTUAL_MACHINES=true 2>/dev/null || true
+            fi
+            # Collector: patch CR first, then ensure compliance container has env (operator may not propagate)
             local collector_env
             collector_env=$(oc get securedcluster "${sc_name}" -n "${sc_namespace}" -o jsonpath='{.spec.perNode.collector.customize.env}' 2>/dev/null || echo "[]")
             if ! echo "${collector_env}" | grep -q "ROX_VIRTUAL_MACHINES"; then
