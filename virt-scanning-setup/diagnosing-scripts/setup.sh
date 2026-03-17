@@ -133,3 +133,5 @@ Netid           State            Recv-Q            Send-Q                       
 sh-5.1# 
 
 chroot /host ps aux | grep -iE 'vsock|818'
+chroot /host ps aux | grep -iE 'collector'
+chroot /host lsof -p 3175587 | grep -iE 'vsock|818'

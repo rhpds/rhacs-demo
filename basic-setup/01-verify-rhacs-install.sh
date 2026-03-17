@@ -324,7 +324,6 @@ check_and_update_version() {
     # Already at target: same minor = stable (4.10.x follows 4.10 channel)
     if [ "${installed_version}" != "unknown" ] && [ "${target_major_minor}" = "${installed_major_minor}" ]; then
         print_info "✓ RHACS is already on ${target_version} channel (installed: ${installed_version})"
-        configure_rhacs_vm_scanning
         return 0
     fi
     
@@ -401,116 +400,6 @@ get_central_cr_name() {
     oc get central -n "${RHACS_NAMESPACE}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo ""
 }
 
-# Get SecuredCluster resources (namespace/name pairs).
-get_secured_clusters() {
-    oc get securedcluster -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null || echo ""
-}
-
-# Configure RHACS for VM vulnerability scanning (ROX_VIRTUAL_MACHINES=true).
-# Required on: Central deployment, Sensor deployment, Compliance container in Collector daemonset.
-# Patches Central CR and SecuredCluster CRs; falls back to deployment/daemonset when CR path unavailable.
-configure_rhacs_vm_scanning() {
-    print_step "Configuring RHACS for VM vulnerability scanning (ROX_VIRTUAL_MACHINES=true)"
-    
-    # 1. Central deployment
-    local central_cr_name
-    central_cr_name=$(get_central_cr_name)
-    if [ -n "${central_cr_name}" ]; then
-        local central_env
-        central_env=$(oc get central "${central_cr_name}" -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.central.customize.env}' 2>/dev/null || echo "[]")
-        if ! echo "${central_env}" | grep -q "ROX_VIRTUAL_MACHINES"; then
-            print_info "Patching Central with ROX_VIRTUAL_MACHINES=true..."
-            oc patch central "${central_cr_name}" -n "${RHACS_NAMESPACE}" --type=merge -p '{"spec":{"central":{"customize":{"env":[{"name":"ROX_VIRTUAL_MACHINES","value":"true"}]}}}}' 2>/dev/null || true
-        fi
-    fi
-    local central_val
-    central_val=$(oc get deployment central -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="central")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
-    if [ "${central_val}" != "true" ]; then
-        print_info "Central deployment missing ROX_VIRTUAL_MACHINES - patching deployment directly..."
-        oc set env deployment/central -n "${RHACS_NAMESPACE}" ROX_VIRTUAL_MACHINES=true 2>/dev/null || true
-    fi
-    
-    # 2. Sensor deployment and 3. Compliance container in Collector daemonset
-    local sc_list
-    sc_list=$(get_secured_clusters)
-    
-    if [ -n "${sc_list}" ]; then
-        while IFS=/ read -r sc_namespace sc_name; do
-            [ -z "${sc_name}" ] && continue
-            # Sensor: patch CR first, then ensure deployment has env (operator may not propagate CR to deployment)
-            local sensor_env
-            sensor_env=$(oc get securedcluster "${sc_name}" -n "${sc_namespace}" -o jsonpath='{.spec.customize.env}' 2>/dev/null || echo "[]")
-            if ! echo "${sensor_env}" | grep -q "ROX_VIRTUAL_MACHINES"; then
-                print_info "Patching SecuredCluster ${sc_name} (Sensor) with ROX_VIRTUAL_MACHINES=true..."
-                oc patch securedcluster "${sc_name}" -n "${sc_namespace}" --type=merge -p '{
-                  "spec": {
-                    "customize": {
-                      "env": [
-                        {"name": "ROX_VIRTUAL_MACHINES", "value": "true"}
-                      ]
-                    }
-                  }
-                }' 2>/dev/null || true
-            fi
-            local sensor_val
-            sensor_val=$(oc get deployment sensor -n "${sc_namespace}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="sensor")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
-            if [ "${sensor_val}" != "true" ]; then
-                print_info "Sensor deployment missing ROX_VIRTUAL_MACHINES - patching deployment directly..."
-                oc set env deployment/sensor -n "${sc_namespace}" ROX_VIRTUAL_MACHINES=true 2>/dev/null || true
-            fi
-            # Collector: patch CR first, then ensure compliance container has env (operator may not propagate)
-            local collector_env
-            collector_env=$(oc get securedcluster "${sc_name}" -n "${sc_namespace}" -o jsonpath='{.spec.perNode.collector.customize.env}' 2>/dev/null || echo "[]")
-            if ! echo "${collector_env}" | grep -q "ROX_VIRTUAL_MACHINES"; then
-                print_info "Patching SecuredCluster ${sc_name} (Collector) with ROX_VIRTUAL_MACHINES=true..."
-                oc patch securedcluster "${sc_name}" -n "${sc_namespace}" --type=merge -p '{
-                  "spec": {
-                    "perNode": {
-                      "collector": {
-                        "customize": {
-                          "env": [
-                            {"name": "ROX_VIRTUAL_MACHINES", "value": "true"}
-                          ]
-                        }
-                      }
-                    }
-                  }
-                }' 2>/dev/null || true
-            fi
-            # Always ensure compliance container has ROX_VIRTUAL_MACHINES (VM scanning runs in compliance container)
-            local has_compliance
-            has_compliance=$(oc get daemonset collector -n "${sc_namespace}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="compliance")].name}' 2>/dev/null || echo "")
-            if [ -n "${has_compliance}" ]; then
-                local compliance_val
-                compliance_val=$(oc get daemonset collector -n "${sc_namespace}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="compliance")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
-                if [ "${compliance_val}" != "true" ]; then
-                    print_info "Patching Collector daemonset compliance container with ROX_VIRTUAL_MACHINES=true..."
-                    oc set env daemonset/collector -n "${sc_namespace}" ROX_VIRTUAL_MACHINES=true -c compliance 2>/dev/null || true
-                fi
-            fi
-        done <<< "${sc_list}"
-        print_info "✓ SecuredCluster(s) configured for VM scanning"
-    else
-        # No SecuredCluster: patch Sensor and Collector daemonset directly
-        local sensor_val
-        sensor_val=$(oc get deployment sensor -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="sensor")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
-        if [ "${sensor_val}" != "true" ]; then
-            oc set env deployment/sensor -n "${RHACS_NAMESPACE}" ROX_VIRTUAL_MACHINES=true 2>/dev/null || true
-        fi
-        local has_compliance
-        has_compliance=$(oc get daemonset collector -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="compliance")].name}' 2>/dev/null || echo "")
-        if [ -n "${has_compliance}" ]; then
-            local compliance_val
-            compliance_val=$(oc get daemonset collector -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="compliance")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
-            if [ "${compliance_val}" != "true" ]; then
-                oc set env daemonset/collector -n "${RHACS_NAMESPACE}" ROX_VIRTUAL_MACHINES=true -c compliance 2>/dev/null || true
-            fi
-        fi
-    fi
-    
-    print_info "✓ RHACS VM scanning configured (Central, Sensor, Collector compliance container)"
-}
-
 # Function to update RHACS version
 update_rhacs_version() {
     local target_version=$1
@@ -532,40 +421,18 @@ update_rhacs_version() {
         current_image=$(oc get central "${central_cr_name}" -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.central.image}' 2>/dev/null || echo "")
         
         if [ -n "${current_image}" ]; then
-            # Update image tag and ROX_VIRTUAL_MACHINES in one patch so we only restart once
+            # Update image tag
             local image_repo
             image_repo=$(echo "${current_image}" | sed 's/:.*//')
-            local patch_output
-            patch_output=$(oc patch central "${central_cr_name}" -n "${RHACS_NAMESPACE}" --type=merge -p '{
-              "spec": {
-                "central": {
-                  "image": "'"${image_repo}"':'"${target_version}"'",
-                  "customize": {
-                    "env": [
-                      {"name": "ROX_VIRTUAL_MACHINES", "value": "true"}
-                    ]
-                  }
-                }
-              }
-            }' 2>&1) || true
-            
-            if echo "${patch_output}" | grep -q "unknown field"; then
-                oc patch central "${central_cr_name}" -n "${RHACS_NAMESPACE}" --type=json -p="[
-                    {\"op\": \"replace\", \"path\": \"/spec/central/image\", \"value\": \"${image_repo}:${target_version}\"}
-                ]" || {
-                    print_error "Failed to update Central image"
-                    return 1
-                }
-                oc set env deployment/central -n "${RHACS_NAMESPACE}" ROX_VIRTUAL_MACHINES=true 2>/dev/null || true
-            elif [ -n "${patch_output}" ] && ! echo "${patch_output}" | grep -q "patched\|unchanged"; then
-                print_error "Failed to update Central: ${patch_output}"
+            oc patch central "${central_cr_name}" -n "${RHACS_NAMESPACE}" --type=json -p="[
+                {\"op\": \"replace\", \"path\": \"/spec/central/image\", \"value\": \"${image_repo}:${target_version}\"}
+            ]" || {
+                print_error "Failed to update Central image"
                 return 1
-            fi
-            configure_rhacs_vm_scanning
+            }
         else
             # No image in spec: operator manages rollout via subscription/CSV channel
             print_info "Central has no custom image; operator will rollout from channel/CSV"
-            configure_rhacs_vm_scanning
         fi
         
         print_info "Waiting for update to complete..."

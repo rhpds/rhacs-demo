@@ -192,7 +192,7 @@ display_summary() {
     echo ""
     echo "  ✓ virtctl CLI tool installed"
     echo "  ✓ OpenShift Virtualization VSOCK feature gate enabled"
-    echo "  ✓ RHACS VM scanning (ROX_VIRTUAL_MACHINES=true set in basic-setup)"
+    echo "  ✓ RHACS VM scanning (ROX_VIRTUAL_MACHINES=true configured by 01-configure-rhacs.sh)"
     echo "  ✓ Webserver VM deployed (cloud-init):"
     echo "    • rhel-webserver"
     

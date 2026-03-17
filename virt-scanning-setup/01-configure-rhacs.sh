@@ -1,13 +1,13 @@
 #!/bin/bash
 
 # Script: 01-configure-rhacs.sh
-# Description: Configure OpenShift Virtualization for RHACS VM vulnerability scanning
+# Description: Configure RHACS and OpenShift Virtualization for VM vulnerability scanning
 #
-# ROX_VIRTUAL_MACHINES=true is now set in basic-setup/01-verify-rhacs-install.sh as part of
-# the version update (single restart). This script only:
-# 1. Verifies OpenShift Virtualization operator is installed
-# 2. Enables VSOCK support via HyperConverged resource
-# 3. Provides VM configuration instructions
+# This script performs all VM-related configuration:
+# 1. Applies ROX_VIRTUAL_MACHINES=true to Central, Sensor, and Collector (compliance container)
+# 2. Verifies OpenShift Virtualization operator is installed
+# 3. Enables VSOCK support via HyperConverged resource
+# 4. Provides VM configuration instructions
 
 set -euo pipefail
 
@@ -39,10 +39,10 @@ readonly CNV_NAMESPACE="openshift-cnv"
 readonly RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
 
 #================================================================
-# Apply ROX_VIRTUAL_MACHINES to missing components (fallback when basic-setup not run)
+# Apply ROX_VIRTUAL_MACHINES to Central, Sensor, Collector (compliance container)
 #================================================================
 apply_rhacs_vm_configuration() {
-    print_step "Applying ROX_VIRTUAL_MACHINES=true to missing components..."
+    print_step "Configuring RHACS for VM vulnerability scanning (ROX_VIRTUAL_MACHINES=true)"
     
     local sc_list
     sc_list=$(oc get securedcluster -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null || echo "")
@@ -106,73 +106,6 @@ apply_rhacs_vm_configuration() {
     
     print_info "Waiting for operator to reconcile (45s)..."
     sleep 45
-}
-
-#================================================================
-# Verify ROX_VIRTUAL_MACHINES is configured (set by basic-setup)
-#================================================================
-verify_rhacs_vm_configuration() {
-    print_step "Verifying RHACS VM configuration (ROX_VIRTUAL_MACHINES=true)"
-    
-    local missing=()
-    
-    local central_val
-    central_val=$(oc get deployment central -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="central")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
-    if [ "${central_val}" != "true" ]; then
-        missing+=("Central")
-    fi
-    
-    # Find Sensor namespace and check ROX_VIRTUAL_MACHINES
-    local sensor_ns="${RHACS_NAMESPACE}"
-    local sc_ns
-    sc_ns=$(oc get securedcluster -A -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || echo "")
-    [ -n "${sc_ns}" ] && sensor_ns="${sc_ns}"
-    local sensor_val
-    sensor_val=$(oc get deployment sensor -n "${sensor_ns}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="sensor")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
-    if [ "${sensor_val}" != "true" ]; then
-        missing+=("Sensor")
-    fi
-    
-    local collector_val
-    collector_val=$(oc get daemonset collector -n "${sensor_ns}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="compliance")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
-    if [ -z "${collector_val}" ] || [ "${collector_val}" != "true" ]; then
-        local has_compliance
-        has_compliance=$(oc get daemonset collector -n "${sensor_ns}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="compliance")].name}' 2>/dev/null || echo "")
-        if [ -n "${has_compliance}" ]; then
-            missing+=("Collector compliance container")
-        fi
-    fi
-    
-    if [ ${#missing[@]} -gt 0 ]; then
-        print_warn "RHACS VM configuration incomplete. Missing ROX_VIRTUAL_MACHINES=true on: ${missing[*]}"
-        echo ""
-        print_info "Applying configuration to missing components..."
-        apply_rhacs_vm_configuration
-        echo ""
-        print_info "Re-verifying..."
-        missing=()
-        central_val=$(oc get deployment central -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="central")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
-        [ "${central_val}" != "true" ] && missing+=("Central")
-        sensor_ns="${RHACS_NAMESPACE}"
-        sc_ns=$(oc get securedcluster -A -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || echo "")
-        [ -n "${sc_ns}" ] && sensor_ns="${sc_ns}"
-        sensor_val=$(oc get deployment sensor -n "${sensor_ns}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="sensor")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
-        [ "${sensor_val}" != "true" ] && missing+=("Sensor")
-        collector_val=$(oc get daemonset collector -n "${sensor_ns}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="compliance")].env[?(@.name=="ROX_VIRTUAL_MACHINES")].value}' 2>/dev/null || echo "")
-        has_compliance=$(oc get daemonset collector -n "${sensor_ns}" -o jsonpath='{.spec.template.spec.containers[?(@.name=="compliance")].name}' 2>/dev/null || echo "")
-        if [ -n "${has_compliance}" ] && { [ -z "${collector_val}" ] || [ "${collector_val}" != "true" ]; }; then
-            missing+=("Collector compliance container")
-        fi
-        if [ ${#missing[@]} -gt 0 ]; then
-            print_error "Configuration applied but still missing: ${missing[*]}"
-            print_info "Run basic-setup: cd ~/rhacs-demo && ./basic-setup/install.sh"
-            exit 1
-        fi
-        print_info "✓ Configuration applied successfully"
-        return
-    fi
-    
-    print_info "✓ Central, Sensor, Collector compliance container have ROX_VIRTUAL_MACHINES=true"
 }
 
 #================================================================
@@ -271,8 +204,8 @@ main() {
     print_info "Connected to cluster: $(oc whoami --show-server 2>/dev/null || echo 'unknown')"
     echo ""
     
-    # Verify ROX_VIRTUAL_MACHINES is configured (basic-setup does this as part of version update)
-    verify_rhacs_vm_configuration
+    # Apply ROX_VIRTUAL_MACHINES to Central, Sensor, Collector (compliance container)
+    apply_rhacs_vm_configuration
     echo ""
     
     # Verify OpenShift Virtualization is installed
@@ -291,7 +224,7 @@ main() {
     print_info "✓ OpenShift Virtualization operator detected"
     echo ""
     
-    # Enable VSOCK (ROX_VIRTUAL_MACHINES is set in basic-setup)
+    # Enable VSOCK
     patch_hyperconverged_vsock
     echo ""
     
@@ -303,8 +236,8 @@ main() {
     print_info "=========================================="
     echo ""
     print_info "Configuration completed:"
+    print_info "  ✓ Central, Sensor, Collector: ROX_VIRTUAL_MACHINES=true"
     print_info "  ✓ HyperConverged: vsock support enabled"
-    print_info "  (ROX_VIRTUAL_MACHINES=true set in basic-setup)"
     echo ""
     print_info "Next steps:"
     print_info "  1. Configure VMs with vsock support (see instructions above)"
