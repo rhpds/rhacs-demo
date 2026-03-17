@@ -199,7 +199,8 @@ if [ -n "$GROUPS_LIST" ]; then
     # Also test metrics endpoint
     echo ""
     log "Testing metrics endpoint access..."
-    METRICS_TEST=$(curl -k -s --cert client.crt --key client.key "$ROX_CENTRAL_URL/metrics" 2>&1 | head -10)
+    # Use || true to avoid script exit on SIGPIPE when head closes pipe after 10 lines
+    METRICS_TEST=$(curl -k -s --cert client.crt --key client.key "$ROX_CENTRAL_URL/metrics" 2>&1 | head -10) || true
     
     if echo "$METRICS_TEST" | grep -q "access for this user is not authorized"; then
       error "✗ Metrics endpoint access denied: no valid role"
