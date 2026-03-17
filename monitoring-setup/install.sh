@@ -196,12 +196,13 @@ if [ -n "$GROUPS_LIST" ]; then
   if echo "$AUTH_TEST" | grep -q '"userId"'; then
     log "✓ Client certificate authentication successful!"
     
-    # Also test metrics endpoint
+    # Also test metrics endpoint (disable set -e for this block - curl|head can cause SIGPIPE)
     echo ""
     log "Testing metrics endpoint access..."
-    # Use || true to avoid script exit on SIGPIPE when head closes pipe after 10 lines
-    METRICS_TEST=$(curl -k -s --cert client.crt --key client.key "$ROX_CENTRAL_URL/metrics" 2>&1 | head -10) || true
-    
+    set +e
+    METRICS_TEST=$(curl -k -s --max-time 30 --cert client.crt --key client.key "$ROX_CENTRAL_URL/metrics" 2>&1 | head -10)
+    set -e
+
     if echo "$METRICS_TEST" | grep -q "access for this user is not authorized"; then
       error "✗ Metrics endpoint access denied: no valid role"
       echo ""

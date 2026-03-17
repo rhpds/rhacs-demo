@@ -22,4 +22,4 @@ spec:
     requests:
       cpu: 100m
       memory: 256Mi
-  retention: 1d
+  retention: 7d  # keep data longer (was 1d default)

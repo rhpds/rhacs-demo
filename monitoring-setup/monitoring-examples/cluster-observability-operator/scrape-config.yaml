@@ -8,6 +8,10 @@ metadata:
 spec:
   jobName: sample-stackrox-metrics
   scheme: HTTPS
+  metricRelabelConfigs:
+    - sourceLabels: [__name__]
+      regex: 'go_.*|process_.*|promhttp_.*'
+      action: drop
   metricsPath: /metrics
   staticConfigs:
     - targets:
