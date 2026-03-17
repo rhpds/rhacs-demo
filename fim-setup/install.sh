@@ -148,7 +148,7 @@ echo ""
 print_info "To trigger FIM violations for demonstration, run these commands:"
 echo ""
 echo "  1. Start a debug session on a worker node:"
-echo "     oc debug node/${WORKER_NODE}"
+echo "     oc debug node/${WORKER_NODE}" -- chroot /host && touch /etc/passwd
 echo ""
 echo "  2. Inside the debug pod, run:"
 echo "     chroot /host"
