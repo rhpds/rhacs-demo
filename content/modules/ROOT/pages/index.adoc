@@ -2,9 +2,11 @@
 
 = Advanced Cluster Security Demo 
 
-== Setup Instructions (15 minutes)
+== Setup Instructions
 
-=== RHACS Basic Setup
+Run the setup steps in order. Each step depends on the previous ones.
+
+=== Step 1: RHACS Basic Setup
 
 To ensure your RHACS environment is up to date, and has all of the necessary components, run the following command in the *Bastion* tab.
 
@@ -17,8 +19,9 @@ To ensure your RHACS environment is up to date, and has all of the necessary com
 [source,sh,subs="attributes",role=execute]
 ----
 cd ~/
-git clone https://github.com/mfosterrox/rhacs-demo.git && git pull
-./rhacs-demo/basic-setup/install.sh {acs_portal_password}
+git clone https://github.com/mfosterrox/rhacs-demo.git 2>/dev/null || true
+cd rhacs-demo && git pull
+./basic-setup/install.sh {acs_portal_password}
 ----
 
 . Verify the deployment completed successfully
@@ -35,25 +38,36 @@ git clone https://github.com/mfosterrox/rhacs-demo.git && git pull
 [INFO] Central URL: {acs_route}
 [INFO] Username: admin
 [INFO] Admin Password: {acs_portal_password}
-[INFO] RHACS Version: 4.9.2
+[INFO] RHACS Version: 4.10.0
 [INFO] 
 [INFO] 
 ----
 
-=== RHACS Monitoring Setup
+. Source the environment (ROX_CENTRAL_URL, ROX_API_TOKEN) for subsequent steps:
++
+[source,sh,subs="attributes",role=execute]
+----
+source ~/.bashrc
+----
 
-Run the following command in the *Bastion* tab.
+=== Step 2: RHACS Monitoring Setup
+
+Run the following in the *Bastion* tab. 
+
+*Requirements*
+
+- Requires basic-setup (Step 1) to have been run successfully.
 
 *Procedure*
 
 [start=1]
-. Switch to the *Bastion* tab, located on the right side of the screen.
+. Switch to the *Bastion* tab.
 . Run the following
 +
 [source,sh,subs="attributes",role=execute]
 ----
 cd ~/rhacs-demo/monitoring-setup
-git pull && ./install.sh {acs_portal_password}
+git pull && ./install.sh
 ----
 
 . Verify the deployment completed successfully
@@ -79,36 +93,38 @@ Note: Auth changes may take 10-30 seconds to propagate.
 +
 [source,sh,subs="attributes",role=execute]
 ----
-cd /home/lab-user/rhacs-demo/monitoring-setup && curl --cert client.crt --key client.key -k $ROX_CENTRAL_URL/metrics
+cd ~/rhacs-demo/monitoring-setup && source ~/.bashrc && curl --cert client.crt --key client.key -k $ROX_CENTRAL_URL/metrics
 ----
 
 .**OUTPUT**
 [source,sh,subs="attributes"]
 ----
-latformComponent="true",Namespace="rhacs-operator",Severity="HIGH_SEVERITY"} 2
-rox_central_policy_violation_namespace_severity{Action="UNSET_ENFORCEMENT",Cluster="production",IsPlatformComponent="true",Namespace="stackrox",Severity="HIGH_SEVERITY"} 50
-rox_central_policy_violation_namespace_severity{Action="UNSET_ENFORCEMENT",Cluster="production",IsPlatformComponent="true",Namespace="stackrox",Severity="LOW_SEVERITY"} 12
-rox_central_policy_violation_namespace_severity{Action="UNSET_ENFORCEMENT",Cluster="production",IsPlatformComponent="true",Namespace="stackrox",Severity="MEDIUM_SEVERITY"} 19
-[lab-user@bastion monitoring-setup]$ 
+rox_central_policy_violation_namespace_severity{...} 2
+rox_central_policy_violation_namespace_severity{...} 50
+...
 ----
 
-=== RHACS VM Management (Vulnerability Scanning)
+=== Step 3: RHACS VM Vulnerability Scanning
 
-Run the following in the *Bastion* tab to set up RHACS virtual machine vulnerability scanning with OpenShift Virtualization. The script configures RHACS for VM scanning, enables VSOCK, and deploys four RHEL VMs (webserver, database, devtools, monitoring) with roxagent. When you provide Red Hat subscription credentials, packages install automatically and vulnerability data appears in RHACS within about 10 minutes.
+Run the following in the *Bastion* tab to set up RHACS virtual machine vulnerability scanning with OpenShift Virtualization. The script configures RHACS for VM scanning, enables VSOCK, and deploys a RHEL webserver VM with roxagent. When you provide Red Hat subscription credentials, packages install automatically and vulnerability data appears in RHACS within about 10 minutes.
+
+*Requirements*
+
+- Requires basic-setup (Step 1) to have been run successfully.
+- You must have valid Red Hat subscription credentials. (Username/Password)
 
 *Procedure*
 
 [start=1]
-. Switch to the *Bastion* tab, located on the right side of the screen.
+. Switch to the *Bastion* tab.
 . Run the following
 +
 [source,sh,subs="attributes",role=execute]
 ----
-cd ~/rhacs-demo/virt-scanning-setup
-git pull && ./install.sh
+cd ~/rhacs-demo/virt-scanning-setup && ./install.sh
 ----
 
-. When prompted, enter your Red Hat subscription credentials (username/password or organization/activation key). With credentials, VMs register and install packages via cloud-init; vulnerability data will appear in RHACS automatically.
+. When prompted, enter your Red Hat subscription credentials (username/password). With credentials, the VM registers and installs packages via cloud-init; vulnerability data will appear in RHACS automatically.
 . Verify the deployment completed successfully
 +
 .**OUTPUT**
@@ -124,24 +140,18 @@ What was configured:
   ✓ RHACS Central, Sensor, Collector (ROX_VIRTUAL_MACHINES=true)
   ✓ OpenShift Virtualization VSOCK feature gate enabled
   ✓ Collector hostNetwork + DNS configured for VSOCK
-  ✓ 4 RHEL VMs deployed with roxagent:
+  ✓ Webserver VM deployed (cloud-init):
     • rhel-webserver
-    • rhel-database
-    • rhel-devtools
-    • rhel-monitoring
 
-  ✓ Red Hat subscription configured (automatic registration)
+⏱️  Deployment Timeline:
 
-⏱️  Deployment Timeline (Automatic):
-
-  Now      VMs deploying, cloud-init starting
-  +3 min   Subscription registering
-  +5 min   Packages installing (httpd, nginx, postgresql, etc.)
-  +8 min   roxagent scanning packages
+  Now      VM deploying
+  +3 min   VM booting, cloud-init running
+  +5 min   VM ready, roxagent scanning
   +10 min  ✓ Vulnerability data visible in RHACS!
 ----
 +
-. (Optional) Verify VMs are running and view vulnerability data
+. (Optional) Verify VM is running
 +
 [source,sh,subs="attributes",role=execute]
 ----
@@ -153,17 +163,72 @@ oc get vmi -n default
 ----
 NAME              AGE   PHASE     IP            NODENAME
 rhel-webserver    12m   Running   10.128.2.45   worker-0
-rhel-database     12m   Running   10.128.2.46   worker-0
-rhel-devtools     12m   Running   10.128.2.47   worker-0
-rhel-monitoring   12m   Running   10.128.2.48   worker-0
 ----
 +
 In the RHACS UI: *Platform Configuration* → *Clusters* → *Virtual Machines*, and *Vulnerability Management* → *Workload CVEs*.
 
 *Additional information*
-* VM access: Console `virtctl console rhel-webserver -n default` (login: user, password: redhat). SSH `virtctl ssh -i ~/.ssh/id_ed25519 user@vmi/rhel-webserver -n default` (requires bastion key in cloud-init). Wait 5–10 minutes after the VM is Running for cloud-init to complete.
-* Webserver VM is exposed via an OpenShift Route; get the URL with: `oc get route rhel-webserver -n default -o jsonpath='https://{.spec.host}{"\n"}'`
+* VM access: `virtctl console rhel-webserver -n default` (login: cloud-user, password: redhat). Wait 5–10 minutes after the VM is Running for cloud-init to complete.
+* Webserver VM route: `oc get route rhel-webserver -n default -o jsonpath='https://{.spec.host}{"\n"}'`
 * Full documentation: `~/rhacs-demo/virt-scanning-setup/README.md`
+
+=== Step 4: OpenShift Lightspeed (Optional)
+
+Installs the OpenShift Lightspeed Operator and enables AI assistance in the OpenShift web console. Requires OpenShift 4.15+ and an LLM provider (OpenShift AI, Azure OpenAI, etc.).
+
+*Procedure*
+
+[start=1]
+. Switch to the *Bastion* tab.
+. Run the following
++
+[source,sh,subs="attributes",role=execute]
+----
+cd ~/rhacs-demo/lightspeed-setup
+git pull && ./install.sh
+----
+
+. Create OLSConfig with your LLM provider for the "Ask OpenShift Lightspeed" button to appear in the YAML Editor.
+* Full documentation: `~/rhacs-demo/lightspeed-setup/README.md`
+
+=== Step 5: StackRox MCP Server (Optional)
+
+Deploys the StackRox MCP server so AI assistants (Cursor, Claude Code) can access RHACS via the Model Context Protocol. Requires basic-setup (Step 1).
+
+*Procedure*
+
+[start=1]
+. Switch to the *Bastion* tab.
+. Run the following
++
+[source,sh,subs="attributes",role=execute]
+----
+cd ~/rhacs-demo/mcp-server-setup
+git pull && ./install.sh
+----
+
+. Connect Cursor or other MCP clients using the Route URL and RHACS API token.
+* Full documentation: `~/rhacs-demo/mcp-server-setup/README.md`
+
+=== Step 6: FIM Demo (Optional)
+
+Deploys a File Integrity Monitoring policy and triggers violations for demonstration. Requires basic-setup (Step 1) for `ROX_API_TOKEN`. Requires `jq`.
+
+*Procedure*
+
+[start=1]
+. Switch to the *Bastion* tab.
+. Ensure `ROX_API_TOKEN` is set (from basic-setup `~/.bashrc`).
+. Run the following
++
+[source,sh,subs="attributes",role=execute]
+----
+cd ~/rhacs-demo/fim-setup
+git pull && ./install.sh
+----
+
+. View violations in RHACS UI: *Violations* → filter by policy *FIM-basic-monitoring*.
+* Full documentation: `~/rhacs-demo/fim-setup/README.md`
 
 == Accessing the Consoles
 
@@ -195,13 +260,13 @@ To access the bastion host, use the following SSH command:
 
 [source,sh,subs="attributes"]
 ----
-ssh {openshift-base--bastion_ssh_user_name}@{openshift-base--bastion_public_hostname}
+ssh {bastion_ssh_user_name}@{bastion_public_hostname}
 ----
 
 When prompted for a password, use:
 
 [source,text,subs="attributes"]
 ----
-{openshift-base--bastion_ssh_password}
+{bastion_ssh_password}
 ----
 

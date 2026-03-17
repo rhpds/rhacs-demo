@@ -128,12 +128,12 @@ cleanup_existing_vms() {
 }
 
 #================================================================
-# Step 1: Configure RHACS and VSOCK
+# Step 1: Verify RHACS VM config and Enable VSOCK
 #================================================================
 step_configure_rhacs() {
     echo ""
     print_header "════════════════════════════════════════════════════════════"
-    print_step "Step 1: Configure RHACS Platform and Enable VSOCK"
+    print_step "Step 1: Verify RHACS VM Configuration and Enable VSOCK"
     print_header "════════════════════════════════════════════════════════════"
     echo ""
     
@@ -191,9 +191,8 @@ display_summary() {
     print_info "What was configured:"
     echo ""
     echo "  ✓ virtctl CLI tool installed"
-    echo "  ✓ RHACS Central, Sensor, Collector (ROX_VIRTUAL_MACHINES=true)"
     echo "  ✓ OpenShift Virtualization VSOCK feature gate enabled"
-    echo "  ✓ Collector hostNetwork + DNS configured for VSOCK"
+    echo "  ✓ RHACS VM scanning (ROX_VIRTUAL_MACHINES=true set in basic-setup)"
     echo "  ✓ Webserver VM deployed (cloud-init):"
     echo "    • rhel-webserver"
     
