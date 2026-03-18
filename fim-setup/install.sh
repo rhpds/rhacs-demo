@@ -19,7 +19,7 @@ print_step() { echo -e "${BLUE}[STEP]${NC} $*"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FIM_POLICIES=(
-    "${SCRIPT_DIR}/fim-policy-basic.json"
+    "${SCRIPT_DIR}/fim-basic-node-monitoring.json"
     "${SCRIPT_DIR}/fim-basic-deploy-monitoring.json"
 )
 RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
@@ -151,7 +151,7 @@ echo "  1. Start a debug session on a worker node:"
 echo "     oc debug node/${WORKER_NODE}" -- chroot /host touch /etc/passwd
 echo "  2. Inside the debug pod, run:"
 echo "     chroot /host"
-echo "     touch /etc/passwd    # Triggers FIM-basic-monitoring"
-echo "  3. View violations in RHACS UI: Violations → filter by policy FIM-basic-monitoring"
+echo "     touch /etc/passwd    # Triggers fim-basic-node-monitoring"
+echo "  3. View violations in RHACS UI: Violations → filter by policy fim-basic-node-monitoring"
 echo "  4. type "exit" twice to exit the debug pod"
 echo ""
