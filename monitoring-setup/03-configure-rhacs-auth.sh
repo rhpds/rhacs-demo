@@ -93,8 +93,18 @@ spec:
 fi
 
 # Give Central time to process declarative config (roles) after startup
-log "Waiting for declarative config to be processed (15s)..."
-sleep 15
+log "Waiting for declarative config to be processed (30s)..."
+sleep 30
+
+# Wait for Central API to be ready (may take a moment after restart)
+log "Checking Central API readiness..."
+for i in $(seq 1 30); do
+  if code=$(curl -k -s -o /dev/null -w "%{http_code}" --max-time 10 "$ROX_CENTRAL_URL/v1/auth/status" -H "Authorization: Bearer $ROX_API_TOKEN") && echo "$code" | grep -qE "^[234][0-9]{2}$"; then
+    log "Central API is ready"
+    break
+  fi
+  [ $i -lt 30 ] && sleep 2
+done
 
 echo ""
 log "Checking for existing 'Monitoring' auth provider..."
@@ -121,18 +131,40 @@ fi
 
 echo ""
 log "Creating User-Certificate auth provider..."
-AUTH_PROVIDER_RESPONSE=$(curl -k -s -X POST "$ROX_CENTRAL_URL/v1/authProviders" \
-  -H "Authorization: Bearer $ROX_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data-raw "$(envsubst < monitoring-examples/rhacs/auth-provider.json.tpl)")
+# Central may need a moment after restart - retry auth provider creation if it fails
+AUTH_PROVIDER_ID=""
+max_auth_retries=4
+auth_retry_delay=20
+for auth_attempt in $(seq 1 $max_auth_retries); do
+  AUTH_PROVIDER_RESPONSE=$(curl -k -s -w "\n%{http_code}" -X POST "$ROX_CENTRAL_URL/v1/authProviders" \
+    -H "Authorization: Bearer $ROX_API_TOKEN" \
+    -H "Content-Type: application/json" \
+    --data-raw "$(envsubst < monitoring-examples/rhacs/auth-provider.json.tpl)")
 
-# Extract the auth provider ID from the response (try multiple patterns)
-export AUTH_PROVIDER_ID=$(echo "$AUTH_PROVIDER_RESPONSE" | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/"id"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/' 2>/dev/null) || true
+  HTTP_CODE=$(echo "$AUTH_PROVIDER_RESPONSE" | tail -1)
+  AUTH_RESPONSE_BODY=$(echo "$AUTH_PROVIDER_RESPONSE" | head -n -1)
 
-# If grep/sed didn't work, try jq if available
-if [ -z "$AUTH_PROVIDER_ID" ] && command -v jq &>/dev/null; then
-  export AUTH_PROVIDER_ID=$(echo "$AUTH_PROVIDER_RESPONSE" | jq -r '.id // empty' 2>/dev/null)
-fi
+  # Extract the auth provider ID from the response (try multiple patterns)
+  AUTH_PROVIDER_ID=$(echo "$AUTH_RESPONSE_BODY" | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/"id"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/' 2>/dev/null) || true
+
+  if [ -z "$AUTH_PROVIDER_ID" ] && command -v jq &>/dev/null; then
+    AUTH_PROVIDER_ID=$(echo "$AUTH_RESPONSE_BODY" | jq -r '.id // empty' 2>/dev/null)
+  fi
+
+  if [ -n "$AUTH_PROVIDER_ID" ] && [ "$AUTH_PROVIDER_ID" != "null" ]; then
+    export AUTH_PROVIDER_ID
+    break
+  fi
+  if [ $auth_attempt -lt $max_auth_retries ]; then
+    warn "Auth provider creation failed or API not ready (HTTP $HTTP_CODE) - retrying in ${auth_retry_delay}s (attempt $auth_attempt/$max_auth_retries)..."
+    [ -n "$AUTH_RESPONSE_BODY" ] && warn "Response: $AUTH_RESPONSE_BODY"
+    sleep $auth_retry_delay
+  else
+    error "Failed to create auth provider after $max_auth_retries attempts"
+    error "Last response (HTTP $HTTP_CODE): $AUTH_RESPONSE_BODY"
+    exit 1
+  fi
+done
 
 if [ -n "$AUTH_PROVIDER_ID" ]; then
   log "✓ Auth provider created with ID: $AUTH_PROVIDER_ID"

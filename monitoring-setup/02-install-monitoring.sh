@@ -96,8 +96,26 @@ log "✓ Perses UI Plugin created"
 oc apply -f monitoring-examples/perses/datasource.yaml
 log "✓ Perses Datasource created"
 
-oc apply -f monitoring-examples/perses/dashboard.yaml
-log "✓ Perses Dashboard created"
+# Perses operator conversion webhook may not be ready on first run - retry if creation fails
+log "Creating Perses Dashboard..."
+DASHBOARD_YAML="monitoring-examples/perses/dashboard.yaml"
+max_retries=4
+retry_delay=30
+for attempt in $(seq 1 $max_retries); do
+  if out=$(oc apply -f "$DASHBOARD_YAML" 2>&1); then
+    echo "$out"
+    log "✓ Perses Dashboard created"
+    break
+  fi
+  echo "$out" >&2
+  if [ $attempt -lt $max_retries ] && echo "$out" | grep -qE "perses-operator-conversion-webhook|conversion webhook.*failed"; then
+    warn "Perses operator webhook not ready yet - waiting ${retry_delay}s before retry (attempt $attempt/$max_retries)..."
+    sleep $retry_delay
+  else
+    error "Perses Dashboard creation failed"
+    exit 1
+  fi
+done
 
 echo ""
 log "✓ Monitoring stack installation complete"
