@@ -24,25 +24,25 @@
             "policyVersion": "1.1",
             "policySections": [
                 {
-                    "sectionName": "Process criterion (required for runtime policy)",
+                    "sectionName": "Rule 1",
                     "policyGroups": [
                         {
-                            "fieldName": "Process Name",
+                            "fieldName": "Effective Path",
                             "booleanOperator": "OR",
                             "negate": false,
                             "values": [
                                 {
-                                    "value": ".*"
+                                    "value": "/etc/passwd"
                                 }
                             ]
                         }
                     ]
                 },
                 {
-                    "sectionName": "File path monitoring",
+                    "sectionName": "Rule 2",
                     "policyGroups": [
                         {
-                            "fieldName": "File Path",
+                            "fieldName": "Actual Path",
                             "booleanOperator": "OR",
                             "negate": false,
                             "values": [
