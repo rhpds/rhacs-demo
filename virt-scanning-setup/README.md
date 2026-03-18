@@ -471,28 +471,20 @@ virtualmachines/relay: Error sending index report to sensor:
   desc = "transport: Error while dialing: dial tcp 172.231.132.191:443: i/o timeout"
 ```
 
-**Root Cause**: When collector uses `hostNetwork: true` (required for VSOCK access), it may not be able to reach ClusterIP services depending on the CNI configuration.
+**Root Cause**: Collector networking issues can occur depending on CNI configuration.
 
-**Solution**: The configure script automatically:
-1. Configures sensor with `hostPort: 8443` so it's reachable from host network
-2. Updates collector to reach sensor via `localhost:8443`
+**Solution**: The configure script sets collector to use pod network (`hostNetwork: false`). If you need host network for VSOCK, you may need to manually configure sensor hostPort and collector GRPC_SERVER.
 
-To apply the fix:
+To re-apply the configuration:
 ```bash
 ./01-configure-rhacs.sh
 ```
 
 **Verify the fix**:
 ```bash
-# Check sensor hostPort
-oc get deployment sensor -n stackrox \
-  -o jsonpath='{.spec.template.spec.containers[0].ports[?(@.name=="api")]}'
-
-# Check collector endpoint configuration
-oc get daemonset collector -n stackrox \
-  -o jsonpath='{.spec.template.spec.containers[?(@.name=="compliance")].env[?(@.name=="GRPC_SERVER")].value}'
-
-# Should show: localhost:8443
+# Check collector uses pod network (hostNetwork=false)
+oc get daemonset collector -n stackrox -o jsonpath='{.spec.template.spec.hostNetwork}'
+# Should show: false
 
 # Check collector logs for successful connections
 COLLECTOR_POD=$(oc get pods -n stackrox -l app=collector -o jsonpath='{.items[0].metadata.name}')
@@ -509,8 +501,7 @@ Run the automated check script to verify all configuration:
 This will verify:
 - ✓ RHACS components running
 - ✓ Feature flags configured
-- ✓ Collector networking (hostNetwork, dnsPolicy)
-- ✓ Sensor hostPort configuration
+- ✓ Collector hostNetwork=false
 - ✓ Collector → Sensor connectivity
 - ✓ VSOCK connections from VMs
 

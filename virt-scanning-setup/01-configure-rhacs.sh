@@ -109,6 +109,38 @@ apply_rhacs_vm_configuration() {
 }
 
 #================================================================
+# Ensure collector DaemonSet has hostNetwork: false (default pod network)
+#================================================================
+ensure_collector_host_network_disabled() {
+    print_step "Ensuring collector DaemonSet has hostNetwork=false"
+    
+    local sc_list
+    sc_list=$(oc get securedcluster -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null || echo "")
+    local namespaces_to_config
+    if [ -n "${sc_list}" ]; then
+        namespaces_to_config=$(echo "${sc_list}" | cut -d'/' -f1 | sort -u)
+    else
+        namespaces_to_config="${RHACS_NAMESPACE}"
+    fi
+    
+    for sc_namespace in ${namespaces_to_config}; do
+        [ -z "${sc_namespace}" ] && continue
+        if ! oc get daemonset collector -n "${sc_namespace}" &>/dev/null; then
+            continue
+        fi
+        
+        local current_host_net
+        current_host_net=$(oc get daemonset collector -n "${sc_namespace}" -o jsonpath='{.spec.template.spec.hostNetwork}' 2>/dev/null || echo "")
+        if [ "${current_host_net}" = "true" ]; then
+            print_info "Patching collector DaemonSet in ${sc_namespace}: hostNetwork=false"
+            oc patch daemonset collector -n "${sc_namespace}" --type=strategic -p '{"spec":{"template":{"spec":{"hostNetwork":false,"dnsPolicy":"ClusterFirst"}}}}' 2>/dev/null || true
+        else
+            print_info "Collector in ${sc_namespace} already has hostNetwork=false"
+        fi
+    done
+}
+
+#================================================================
 # Patch HyperConverged resource for vsock
 #================================================================
 patch_hyperconverged_vsock() {
@@ -143,15 +175,15 @@ patch_hyperconverged_vsock() {
     else
         print_info "Adding VSOCK via JSON patch annotation on HyperConverged..."
         
-        # Use annotation method (this is what worked in testing)
-        oc annotate hyperconverged ${hco_name} -n ${CNV_NAMESPACE} --overwrite \
-            kubevirt.kubevirt.io/jsonpatch='[
-              {
-                "op":"add",
-                "path":"/spec/configuration/developerConfiguration/featureGates/-",
-                "value":"VSOCK"
-              }
-            ]'
+        # Patch HyperConverged with deployOVS and kubevirt jsonpatch annotations
+        oc patch hyperconverged ${hco_name} -n ${CNV_NAMESPACE} --type=merge -p '{
+          "metadata": {
+            "annotations": {
+              "deployOVS": "false",
+              "kubevirt.kubevirt.io/jsonpatch": "[{\"op\":\"add\",\"path\":\"/spec/configuration/developerConfiguration/featureGates/-\",\"value\":\"VSOCK\"}]"
+            }
+          }
+        }'
         
         print_info "✓ Annotation applied to HyperConverged"
         print_info "  Waiting for HCO to propagate changes (30s)..."
@@ -208,6 +240,10 @@ main() {
     apply_rhacs_vm_configuration
     echo ""
     
+    # Ensure collector uses pod network (hostNetwork=false)
+    ensure_collector_host_network_disabled
+    echo ""
+    
     # Verify OpenShift Virtualization is installed
     if ! oc get namespace ${CNV_NAMESPACE} >/dev/null 2>&1; then
         print_error "OpenShift Virtualization not installed"
@@ -237,6 +273,7 @@ main() {
     echo ""
     print_info "Configuration completed:"
     print_info "  ✓ Central, Sensor, Collector: ROX_VIRTUAL_MACHINES=true"
+    print_info "  ✓ Collector: hostNetwork=false (pod network)"
     print_info "  ✓ HyperConverged: vsock support enabled"
     echo ""
     print_info "Next steps:"

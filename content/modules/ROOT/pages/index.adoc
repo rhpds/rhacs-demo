@@ -159,7 +159,7 @@ What was configured:
   ✓ virtctl CLI tool installed
   ✓ RHACS Central, Sensor, Collector (ROX_VIRTUAL_MACHINES=true)
   ✓ OpenShift Virtualization VSOCK feature gate enabled
-  ✓ Collector hostNetwork + DNS configured for VSOCK
+  ✓ Collector hostNetwork=false (pod network)
   ✓ Webserver VM deployed (cloud-init):
     • rhel-webserver
 
