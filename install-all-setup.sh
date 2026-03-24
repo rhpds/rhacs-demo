@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Install all *-setup stacks in parallel after validating credentials.
+# Run basic-setup first (sequential), then the other five *-setup installs in parallel.
+# Order avoids RHACS Central churn (e.g. upgrades/restarts) while other scripts use the API.
 #
 # Typical usage:
 #   ./install-all-setup.sh -p '<rhacs-admin-password>'
@@ -25,6 +26,8 @@
 #
 # Non-interactive / CI: INSTALL_ALL_NONINTERACTIVE=1 and set env vars; missing subscription
 # or LLM vars imply the same skips as above.
+#
+# After install: ./verify-all-setup.sh
 # --- end help ---
 
 set -euo pipefail
@@ -357,8 +360,25 @@ main() {
         LIGHTSPEED_SKIP_OLSCONFIG LIGHTSPEED_AUTO_OLSCONFIG
 
     echo ""
-    print_step "Launching setup jobs (logs under ${LOG_DIR})..."
+    print_step "Setup phases (logs under ${LOG_DIR})..."
     echo ""
+
+    # Phase 1: basic-setup alone so RHACS configuration / version settles before API-heavy demos
+    if [ "${SKIP_BASIC_SETUP:-0}" != "1" ]; then
+        print_step "Phase 1: basic-setup (sequential)"
+        local basic_log="${LOG_DIR}/basic-setup.log"
+        if (
+            cd "${REPO_ROOT}"
+            exec bash "${REPO_ROOT}/basic-setup/install.sh"
+        ) >"${basic_log}" 2>&1; then
+            print_info "✓ basic-setup completed (log: ${basic_log})"
+        else
+            local ec=$?
+            print_error "✗ basic-setup failed (exit ${ec}); see ${basic_log}"
+            exit 1
+        fi
+        echo ""
+    fi
 
     declare -a jobs_names=()
     declare -a jobs_pids=()
@@ -382,9 +402,7 @@ main() {
         print_info "Started ${n} (pid ${pid}) → ${lg}"
     }
 
-    if [ "${SKIP_BASIC_SETUP:-0}" != "1" ]; then
-        add_job basic-setup "${REPO_ROOT}/basic-setup/install.sh"
-    fi
+    print_step "Phase 2: lightspeed, FIM, monitoring, MCP, virt-scanning (parallel)"
     if [ "${SKIP_LIGHTSPEED_SETUP:-0}" != "1" ]; then
         add_job lightspeed-setup "${REPO_ROOT}/lightspeed-setup/install.sh"
     fi
@@ -402,12 +420,16 @@ main() {
     fi
 
     if [ ${#jobs_pids[@]} -eq 0 ]; then
-        print_error "No jobs enabled — all SKIP_* flags set?"
+        if [ "${SKIP_BASIC_SETUP:-0}" != "1" ]; then
+            print_info "No parallel jobs (all skipped); basic-setup already completed."
+            exit 0
+        fi
+        print_error "No jobs enabled — set SKIP_* flags or run basic-setup."
         exit 1
     fi
 
     echo ""
-    print_step "Waiting for ${#jobs_pids[@]} job(s)..."
+    print_step "Waiting for ${#jobs_pids[@]} parallel job(s)..."
     echo ""
 
     failed=0
@@ -419,10 +441,10 @@ main() {
 
     echo ""
     if [ "${failed}" -eq 0 ]; then
-        print_info "All setup jobs completed successfully."
+        print_info "All setup phases completed successfully."
         exit 0
     fi
-    print_error "One or more setup jobs failed. Review logs in ${LOG_DIR}"
+    print_error "One or more parallel jobs failed. Review logs in ${LOG_DIR}"
     exit 1
 }
 
