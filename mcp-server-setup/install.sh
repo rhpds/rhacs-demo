@@ -22,6 +22,15 @@ MANIFESTS_DIR="${SCRIPT_DIR}/manifests"
 MCP_NAMESPACE="${MCP_NAMESPACE:-stackrox-mcp}"
 RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
 
+# Surface failures when running under set -e (e.g. sed/oc) — log files stay useful
+# shellcheck disable=SC2154 # LINENO is dynamic when the trap runs
+trap 'e=$?; print_error "mcp-server-setup: command failed (exit ${e}) at line ${LINENO}. Re-run with: bash -x ${BASH_SOURCE[0]} for a trace." >&2; exit "${e}"' ERR
+
+# Namespace placeholder substitution (must be top-level; nested defs can break on older bash)
+mcp_subs_namespace() {
+    sed -e "s|__MCP_NAMESPACE__|${MCP_NAMESPACE}|g" "$@"
+}
+
 # Load variables from ~/.bashrc
 export_bashrc_vars() {
     [ ! -f ~/.bashrc ] && return 0
@@ -96,26 +105,43 @@ main() {
         exit 1
     fi
 
+    local required
+    required=(
+        namespace.yaml serviceaccount.yaml configmap.yaml.template
+        service.yaml deployment.yaml route.yaml
+    )
+    local f
+    for f in "${required[@]}"; do
+        if [ ! -f "${MANIFESTS_DIR}/${f}" ]; then
+            print_error "Missing manifest file: ${MANIFESTS_DIR}/${f}"
+            exit 1
+        fi
+    done
+
     # Process manifests (substitute placeholders)
     print_step "Processing manifests..."
     local tmpdir
-    tmpdir=$(mktemp -d)
+    tmpdir=$(mktemp -d) || {
+        print_error "mktemp -d failed (cannot build rendered manifests)"
+        exit 1
+    }
     trap "rm -rf '${tmpdir}'" EXIT
 
-    subs() { sed -e "s|__MCP_NAMESPACE__|${MCP_NAMESPACE}|g" "$@"; }
-
-    subs "${MANIFESTS_DIR}/namespace.yaml" > "${tmpdir}/namespace.yaml"
-    subs "${MANIFESTS_DIR}/serviceaccount.yaml" > "${tmpdir}/serviceaccount.yaml"
-    subs "${MANIFESTS_DIR}/configmap.yaml.template" | \
+    mcp_subs_namespace "${MANIFESTS_DIR}/namespace.yaml" > "${tmpdir}/namespace.yaml"
+    mcp_subs_namespace "${MANIFESTS_DIR}/serviceaccount.yaml" > "${tmpdir}/serviceaccount.yaml"
+    if ! mcp_subs_namespace "${MANIFESTS_DIR}/configmap.yaml.template" | \
         sed -e "s|CENTRAL_URL|${CENTRAL_URL}|g" -e "s|AUTH_TYPE|${AUTH_TYPE}|g" \
-        > "${tmpdir}/configmap.yaml"
-    subs "${MANIFESTS_DIR}/service.yaml" > "${tmpdir}/service.yaml"
-    subs "${MANIFESTS_DIR}/deployment.yaml" > "${tmpdir}/deployment.yaml"
-    subs "${MANIFESTS_DIR}/route.yaml" > "${tmpdir}/route.yaml"
+        > "${tmpdir}/configmap.yaml"; then
+        print_error "Failed to render configmap (sed pipeline). Check CENTRAL_URL / AUTH_TYPE."
+        exit 1
+    fi
+    mcp_subs_namespace "${MANIFESTS_DIR}/service.yaml" > "${tmpdir}/service.yaml"
+    mcp_subs_namespace "${MANIFESTS_DIR}/deployment.yaml" > "${tmpdir}/deployment.yaml"
+    mcp_subs_namespace "${MANIFESTS_DIR}/route.yaml" > "${tmpdir}/route.yaml"
     print_info "✓ Manifests processed"
     echo ""
 
-    # Apply manifests
+    # Apply manifests (stderr from oc is captured; ERR trap adds line number on failure)
     print_step "Deploying StackRox MCP server..."
     oc apply -f "${tmpdir}/namespace.yaml"
     oc apply -f "${tmpdir}/serviceaccount.yaml"

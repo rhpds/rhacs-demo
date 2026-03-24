@@ -125,14 +125,14 @@ Access the RHACS Console from the *RHACS Console* tab in the right panel, or ope
 
 To access the bastion host, use the following SSH command:
 
-[source,sh,subs="attributes"]
+[source,sh,subs="attributes",role=execute]
 ----
-ssh {bastion_ssh_user_name}@{bastion_public_hostname}
+ssh {bastion_ssh_user_name}@{bastion_public_hostname} -p {bastion_ssh_port}
 ----
 
 When prompted for a password, use:
 
-[source,text,subs="attributes"]
+[source,sh,subs="attributes",role=execute]
 ----
 {bastion_ssh_password}
 ----
