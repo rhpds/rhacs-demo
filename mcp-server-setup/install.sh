@@ -22,6 +22,14 @@ MANIFESTS_DIR="${SCRIPT_DIR}/manifests"
 MCP_NAMESPACE="${MCP_NAMESPACE:-stackrox-mcp}"
 RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
 
+# Default oc client timeout (0 = no timeout in oc, which can hang silently on API issues)
+MCP_OC_REQUEST_TIMEOUT="${MCP_OC_REQUEST_TIMEOUT:-60s}"
+
+# Use a timeout on every oc call so the script cannot hang forever
+mcp_oc() {
+    command oc --request-timeout="${MCP_OC_REQUEST_TIMEOUT}" "$@"
+}
+
 # Surface failures when running under set -e (e.g. sed/oc) — log files stay useful
 # shellcheck disable=SC2154 # LINENO is dynamic when the trap runs
 trap 'e=$?; print_error "mcp-server-setup: command failed (exit ${e}) at line ${LINENO}. Re-run with: bash -x ${BASH_SOURCE[0]} for a trace." >&2; exit "${e}"' ERR
@@ -31,16 +39,22 @@ mcp_subs_namespace() {
     sed -e "s|__MCP_NAMESPACE__|${MCP_NAMESPACE}|g" "$@"
 }
 
-# Load variables from ~/.bashrc
+# Load variables from ~/.bashrc without eval'ing command substitutions (e.g. $(oc get ...))
+# — those would run during install and can hang with no output when the API is slow.
 export_bashrc_vars() {
     [ ! -f ~/.bashrc ] && return 0
     for var in ROX_CENTRAL_URL ROX_API_TOKEN RHACS_NAMESPACE; do
         local line
         line=$(grep -E "^(export[[:space:]]+)?${var}=" ~/.bashrc 2>/dev/null | head -1)
-        if [ -n "$line" ]; then
-            [[ "$line" =~ ^export[[:space:]]+ ]] || line="export $line"
-            eval "$line" 2>/dev/null || true
+        if [ -z "$line" ]; then
+            continue
         fi
+        if grep -qE '\$\(|`' <<< "${line}"; then
+            print_warn "Skipping ${var} from ~/.bashrc (contains command substitution — export ${var} in your shell first, or use a static URL/token)."
+            continue
+        fi
+        [[ "${line}" =~ ^export[[:space:]]+ ]] || line="export ${line}"
+        eval "${line}" 2>/dev/null || true
     done
 }
 
@@ -57,7 +71,7 @@ get_central_host_port() {
 
 # Use internal K8s service URL when possible (same cluster)
 get_central_url_for_mcp() {
-    if oc get svc central -n "${RHACS_NAMESPACE}" &>/dev/null; then
+    if mcp_oc get svc central -n "${RHACS_NAMESPACE}" &>/dev/null; then
         echo "central.${RHACS_NAMESPACE}.svc.cluster.local:443"
     else
         get_central_host_port
@@ -69,15 +83,21 @@ main() {
     echo "=========================================="
     echo ""
 
+    print_info "Loading ROX_* from ~/.bashrc (safe mode; no \$(...) execution)..."
     export_bashrc_vars
 
-    if ! oc whoami &>/dev/null; then
+    print_info "Checking OpenShift login (oc request timeout ${MCP_OC_REQUEST_TIMEOUT})..."
+    local oc_user
+    oc_user=$(mcp_oc whoami 2>/dev/null || true)
+    if [ -z "${oc_user}" ]; then
         print_error "Not logged into OpenShift. Run: oc login"
         exit 1
     fi
+    print_info "Logged in as: ${oc_user}"
 
     if [ -z "${ROX_CENTRAL_URL:-}" ]; then
-        ROX_CENTRAL_URL=$(oc get route central -n "${RHACS_NAMESPACE}" -o jsonpath='https://{.spec.host}' 2>/dev/null || true)
+        print_info "Detecting ROX_CENTRAL_URL from route central..."
+        ROX_CENTRAL_URL=$(mcp_oc get route central -n "${RHACS_NAMESPACE}" -o jsonpath='https://{.spec.host}' 2>/dev/null || true)
     fi
 
     if [ -z "${ROX_CENTRAL_URL:-}" ]; then
@@ -96,6 +116,7 @@ main() {
         USE_STATIC_AUTH=true
     fi
 
+    print_info "Resolving Central URL for MCP config (cluster service vs route)..."
     CENTRAL_URL=$(get_central_url_for_mcp)
     print_info "Central URL for MCP: ${CENTRAL_URL}"
     echo ""
@@ -143,17 +164,17 @@ main() {
 
     # Apply manifests (stderr from oc is captured; ERR trap adds line number on failure)
     print_step "Deploying StackRox MCP server..."
-    oc apply -f "${tmpdir}/namespace.yaml"
-    oc apply -f "${tmpdir}/serviceaccount.yaml"
-    oc apply -f "${tmpdir}/configmap.yaml"
-    oc apply -f "${tmpdir}/service.yaml"
-    oc apply -f "${tmpdir}/deployment.yaml"
-    oc apply -f "${tmpdir}/route.yaml"
+    mcp_oc apply -f "${tmpdir}/namespace.yaml"
+    mcp_oc apply -f "${tmpdir}/serviceaccount.yaml"
+    mcp_oc apply -f "${tmpdir}/configmap.yaml"
+    mcp_oc apply -f "${tmpdir}/service.yaml"
+    mcp_oc apply -f "${tmpdir}/deployment.yaml"
+    mcp_oc apply -f "${tmpdir}/route.yaml"
 
     # Inject API token as env var when using static auth
     if [ "${USE_STATIC_AUTH}" = true ]; then
         print_info "Configuring static auth with ROX_API_TOKEN..."
-        oc set env deployment/stackrox-mcp -n "${MCP_NAMESPACE}" \
+        mcp_oc set env deployment/stackrox-mcp -n "${MCP_NAMESPACE}" \
             STACKROX_MCP__CENTRAL__AUTH_TYPE=static \
             STACKROX_MCP__CENTRAL__API_TOKEN="${ROX_API_TOKEN}" \
             --overwrite
@@ -164,12 +185,12 @@ main() {
 
     # Wait for rollout
     print_step "Waiting for deployment..."
-    oc rollout status deployment/stackrox-mcp -n "${MCP_NAMESPACE}" --timeout=120s || true
+    mcp_oc rollout status deployment/stackrox-mcp -n "${MCP_NAMESPACE}" --timeout=120s || true
     echo ""
 
     # OpenShift Lightspeed integration (optional)
     if [ -f "${SCRIPT_DIR}/02-configure-lightspeed-integration.sh" ]; then
-        if oc get namespace openshift-lightspeed &>/dev/null && oc get olsconfig cluster -n openshift-lightspeed &>/dev/null; then
+        if mcp_oc get namespace openshift-lightspeed &>/dev/null && mcp_oc get olsconfig cluster -n openshift-lightspeed &>/dev/null; then
             if [ "${USE_STATIC_AUTH}" = true ]; then
                 print_step "Configuring OpenShift Lightspeed integration..."
                 if bash "${SCRIPT_DIR}/02-configure-lightspeed-integration.sh"; then
@@ -192,7 +213,7 @@ main() {
     print_info "Namespace: ${MCP_NAMESPACE}"
     print_info "Service: stackrox-mcp.${MCP_NAMESPACE}.svc:8080"
     local actual_route_host
-    actual_route_host=$(oc get route stackrox-mcp -n "${MCP_NAMESPACE}" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+    actual_route_host=$(mcp_oc get route stackrox-mcp -n "${MCP_NAMESPACE}" -o jsonpath='{.spec.host}' 2>/dev/null || true)
     if [ -n "${actual_route_host}" ]; then
         print_info "Route: https://${actual_route_host}"
         echo ""
