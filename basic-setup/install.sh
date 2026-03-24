@@ -371,7 +371,7 @@ save_password_to_bashrc() {
     return 0
 }
 
-# Persist ROX_API_TOKEN to ~/.bashrc so parallel installs (mcp, fim, etc.) and new shells see it.
+# Persist ROX_API_TOKEN to ~/.bashrc so parallel installs (mcp, fam, etc.) and new shells see it.
 # Call whenever ROX_API_TOKEN is set (generated or pre-exported).
 save_rox_api_token_to_bashrc() {
     local token="${ROX_API_TOKEN:-}"

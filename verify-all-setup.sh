@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 #
-# Verify cluster state for each *-setup install (basic, lightspeed, FIM, monitoring, MCP, virt).
+# Verify cluster state for each *-setup install (basic, lightspeed, FAM, monitoring, MCP, virt).
 #
 # Usage:
 #   ./verify-all-setup.sh
 #
-# Optional: ROX_API_TOKEN (for FIM policy checks via RHACS API). If unset, FIM API checks are skipped.
+# Optional: ROX_API_TOKEN (for FAM policy checks via RHACS API). If unset, FAM API checks are skipped.
 #
 # Skip a section (e.g. you did not run that install):
+#   VERIFY_SKIP_FAM=1 ./verify-all-setup.sh
 #   VERIFY_SKIP_VIRT=1 ./verify-all-setup.sh
-#   # or reuse install-all flags:
+#   # or reuse install-all flags (SKIP_FAM_SETUP; legacy SKIP_FIM_SETUP still honored):
+#   SKIP_FAM_SETUP=1 ./verify-all-setup.sh
 #   SKIP_VIRT_SCANNING=1 ./verify-all-setup.sh
 #
 # Exit: 0 = no failures (warnings allowed); 1 = one or more checks failed.
@@ -35,6 +37,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
 LIGHTSPEED_NAMESPACE="${LIGHTSPEED_NAMESPACE:-openshift-lightspeed}"
 MCP_NAMESPACE="${MCP_NAMESPACE:-stackrox-mcp}"
+FAM_CRON_NAMESPACE="${FAM_CRON_NAMESPACE:-default}"
 
 FAILURES=0
 WARNINGS=0
@@ -44,6 +47,7 @@ usage() {
 }
 
 # $1 section name, $2 verify env name, $3 install skip env name
+# Optional $4/$5: legacy verify/skip env names (e.g. VERIFY_SKIP_FIM / SKIP_FIM_SETUP for fam-setup)
 skip_section() {
     local name="$1"
     local vv="$2"
@@ -51,6 +55,14 @@ skip_section() {
     if [ "${!vv:-0}" = "1" ] || [ "${!iv:-0}" = "1" ]; then
         print_info "Skipping ${name} (${vv}=1 or ${iv}=1)"
         return 0
+    fi
+    if [ -n "${4:-}" ] && [ -n "${5:-}" ]; then
+        local lvv="$4"
+        local liv="$5"
+        if [ "${!lvv:-0}" = "1" ] || [ "${!liv:-0}" = "1" ]; then
+            print_info "Skipping ${name} (legacy ${lvv}=1 or ${liv}=1)"
+            return 0
+        fi
     fi
     return 1
 }
@@ -140,8 +152,8 @@ verify_lightspeed() {
     return "${failed}"
 }
 
-verify_fim() {
-    print_step "fim-setup"
+verify_fam() {
+    print_step "fam-setup"
     local failed=0
 
     local sc mode
@@ -155,17 +167,24 @@ verify_fim() {
     if [ "${mode}" = "Enabled" ]; then
         print_ok "SecuredCluster ${sc}: fileActivityMonitoring.mode=Enabled"
     else
-        print_fail "FIM not enabled on SecuredCluster ${sc} (mode='${mode}')"
+        print_fail "File activity monitoring not enabled on SecuredCluster ${sc} (mode='${mode}')"
+        failed=1
+    fi
+
+    if oc get cronjob rhacs-fam-trigger -n "${FAM_CRON_NAMESPACE}" &>/dev/null; then
+        print_ok "CronJob rhacs-fam-trigger in ${FAM_CRON_NAMESPACE}"
+    else
+        print_fail "CronJob rhacs-fam-trigger not found in ${FAM_CRON_NAMESPACE}"
         failed=1
     fi
 
     if [ -z "${ROX_API_TOKEN:-}" ]; then
-        print_warn "ROX_API_TOKEN unset — skipping FIM policy API check"
+        print_warn "ROX_API_TOKEN unset — skipping FAM policy API check"
         WARNINGS=$((WARNINGS + 1))
         return "${failed}"
     fi
 
-    local base url
+    local base
     base=$(get_central_url)
     if [ -z "${base}" ]; then
         print_warn "Could not determine Central URL — skipping policy API check"
@@ -180,7 +199,7 @@ verify_fim() {
         return 1
     fi
 
-    for name in "fim-basic-node-monitoring" "fim-basic-deploy-monitoring"; do
+    for name in "fam-basic-node-monitoring" "fam-basic-deploy-monitoring"; do
         if echo "${policies_json}" | jq -e --arg n "$name" '.policies[] | select(.name==$n)' &>/dev/null; then
             print_ok "Policy present: ${name}"
         else
@@ -307,10 +326,10 @@ main() {
     fi
     echo ""
 
-    if skip_section "fim-setup" "VERIFY_SKIP_FIM" "SKIP_FIM_SETUP"; then
+    if skip_section "fam-setup" "VERIFY_SKIP_FAM" "SKIP_FAM_SETUP" "VERIFY_SKIP_FIM" "SKIP_FIM_SETUP"; then
         :
     else
-        verify_fim || FAILURES=$((FAILURES + 1))
+        verify_fam || FAILURES=$((FAILURES + 1))
     fi
     echo ""
 

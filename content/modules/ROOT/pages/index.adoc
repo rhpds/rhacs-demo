@@ -4,7 +4,7 @@
 
 == Setup Instructions
 
-Use the single orchestration script `install-all-setup.sh` at the root of the demo repository. It runs *basic-setup* first (so RHACS Central stays stable while APIs are configured), then runs the other demo stacks in parallel: Lightspeed, FIM, monitoring, MCP, and VM vulnerability scanning.
+Use the single orchestration script `install-all-setup.sh` at the root of the demo repository. It runs *basic-setup* first (so RHACS Central stays stable while APIs are configured), then runs the other demo stacks in parallel: Lightspeed, FAM (file activity monitoring), monitoring, MCP, and VM vulnerability scanning.
 
 === Requirements
 
@@ -69,9 +69,9 @@ When `install-all-setup.sh` completes, you should see *All setup phases complete
 
 Those values are also shown at the end of `basic-setup` in `basic-setup.log` if you need to confirm.
 
-=== FIM demo (after install)
+=== FAM demo (after install)
 
-To trigger File Integrity Monitoring violations for demonstration, use the worker node commands printed at the end of `fim-setup` in the parallel logs, or:
+To trigger file activity monitoring violations for demonstration, use the worker node commands printed at the end of `fam-setup` in the parallel logs, or:
 
 . Get the first worker node and start a debug session:
 +
@@ -88,7 +88,7 @@ oc debug node/$(echo "$worker_nodes" | head -n1)
 chroot /host
 ----
 
-. Trigger a monitored path change (simulating a FIM violation):
+. Trigger a monitored path change (simulating a file activity violation):
 +
 [source,sh]
 ----

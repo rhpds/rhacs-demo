@@ -402,12 +402,12 @@ main() {
         print_info "Started ${n} (pid ${pid}) → ${lg}"
     }
 
-    print_step "Phase 2: lightspeed, FIM, monitoring, MCP, virt-scanning (parallel)"
+    print_step "Phase 2: lightspeed, FAM, monitoring, MCP, virt-scanning (parallel)"
     if [ "${SKIP_LIGHTSPEED_SETUP:-0}" != "1" ]; then
         add_job lightspeed-setup "${REPO_ROOT}/lightspeed-setup/install.sh"
     fi
-    if [ "${SKIP_FIM_SETUP:-0}" != "1" ]; then
-        add_job fim-setup "${REPO_ROOT}/fim-setup/install.sh"
+    if [ "${SKIP_FAM_SETUP:-0}" != "1" ] && [ "${SKIP_FIM_SETUP:-0}" != "1" ]; then
+        add_job fam-setup "${REPO_ROOT}/fam-setup/install.sh"
     fi
     if [ "${SKIP_MONITORING_SETUP:-0}" != "1" ]; then
         add_job monitoring-setup "${REPO_ROOT}/monitoring-setup/install.sh"

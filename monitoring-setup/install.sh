@@ -42,6 +42,23 @@ get_rox_endpoint() {
     echo "${url#https://}"
 }
 
+# Load ROX_* from ~/.bashrc without executing $(...) (avoids hangs / surprises).
+# Use || true on grep so missing lines do not abort under set -e + pipefail.
+load_rox_from_bashrc() {
+    [ ! -f ~/.bashrc ] && return 0
+    local var line
+    for var in ROX_CENTRAL_URL ROX_API_TOKEN RHACS_NAMESPACE; do
+        line=$(grep -E "^(export[[:space:]]+)?${var}=" ~/.bashrc 2>/dev/null | head -1) || true
+        [ -z "$line" ] && continue
+        if grep -qE '\$\(|`' <<< "$line"; then
+            warn "Skipping ${var} from ~/.bashrc (command substitution) — export ${var} in this shell or use a literal value."
+            continue
+        fi
+        [[ "$line" =~ ^export[[:space:]]+ ]] || line="export $line"
+        eval "$line" 2>/dev/null || true
+    done
+}
+
 #================================================================
 # Pre-flight Checks
 #================================================================
@@ -55,17 +72,8 @@ echo ""
 log "Starting installation..."
 echo ""
 
-# Load ROX_CENTRAL_URL and ROX_API_TOKEN from ~/.bashrc if not already set
-if [ -f ~/.bashrc ]; then
-  if [ -z "${ROX_CENTRAL_URL:-}" ]; then
-    line=$(grep -E "^(export[[:space:]]+)?ROX_CENTRAL_URL=" ~/.bashrc 2>/dev/null | head -1)
-    [ -n "$line" ] && eval "$line"
-  fi
-  if [ -z "${ROX_API_TOKEN:-}" ]; then
-    line=$(grep -E "^(export[[:space:]]+)?ROX_API_TOKEN=" ~/.bashrc 2>/dev/null | head -1)
-    [ -n "$line" ] && eval "$line"
-  fi
-fi
+# Load ROX_* from ~/.bashrc if not already set (non-interactive shells do not source ~/.bashrc)
+load_rox_from_bashrc
 
 # Check required environment variables
 MISSING_VARS=0
@@ -163,9 +171,20 @@ echo "Verifying Configuration"
 echo "============================================"
 echo ""
 
-# Give auth system time to propagate changes
-log "Waiting for auth configuration to propagate (10 seconds)..."
-sleep 10
+# Non-login shells do not source ~/.bashrc; sub-scripts do not export back to this shell.
+log "Loading ROX_CENTRAL_URL / ROX_API_TOKEN from ~/.bashrc before verification..."
+load_rox_from_bashrc
+if [ -n "${ROX_CENTRAL_URL:-}" ] && [ -n "${ROX_API_TOKEN:-}" ]; then
+  export ROX_CENTRAL_URL ROX_API_TOKEN
+fi
+
+if [ -z "${ROX_CENTRAL_URL:-}" ] || [ -z "${ROX_API_TOKEN:-}" ]; then
+  warn "Skipping API/metrics verification — ROX_CENTRAL_URL or ROX_API_TOKEN not set after reading ~/.bashrc."
+  warn "Run: source ~/.bashrc   then export or re-run this script."
+else
+  # Give auth system time to propagate changes
+  log "Waiting for auth configuration to propagate (10 seconds)..."
+  sleep 10
 
 # Extract auth provider ID (set by 03-configure-rhacs-auth.sh)
 if [ -z "${AUTH_PROVIDER_ID:-}" ]; then
@@ -209,7 +228,10 @@ if [ -n "$GROUPS_LIST" ]; then
       error "The group mapping exists but the role assignment is incorrect."
       error "Run the troubleshooting script to fix:"
       echo "  cd $SCRIPT_DIR && ./troubleshoot-auth.sh"
-    elif echo "$METRICS_TEST" | grep -q "^#"; then
+    elif echo "$METRICS_TEST" | grep -q '^curl:'; then
+      warn "Metrics curl failed (bad URL or network). Ensure ROX_CENTRAL_URL is set: source ~/.bashrc"
+      echo "$METRICS_TEST"
+    elif echo "$METRICS_TEST" | grep -q '^#'; then
       log "✓ Metrics endpoint access successful!"
     else
       warn "Metrics endpoint returned unexpected response (first 10 lines):"
@@ -234,9 +256,12 @@ else
   echo "  cd $SCRIPT_DIR && ./troubleshoot-auth.sh"
 fi
 
+fi
+
 #================================================================
 # Installation Complete
 #================================================================
+
 
 echo ""
 echo "============================================"

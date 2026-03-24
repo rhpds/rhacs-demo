@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Script: install-fim.sh
-# Description: Enable FIM on SecuredCluster and submit FIM policies to ACS via API
+# Script: install.sh (fam-setup)
+# Description: Enable file activity monitoring on SecuredCluster, submit FAM policies to ACS via API,
+#              and apply the demo CronJob (fam-cron-alert.yaml).
 # Requires: ROX_CENTRAL_URL (or auto-detect), ROX_API_TOKEN, oc logged in, jq
 
 set -euo pipefail
@@ -18,10 +19,11 @@ print_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 print_step() { echo -e "${BLUE}[STEP]${NC} $*"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FIM_POLICIES=(
-    "${SCRIPT_DIR}/fim-basic-node-monitoring.json"
-    "${SCRIPT_DIR}/fim-basic-deploy-monitoring.json"
+FAM_POLICIES=(
+    "${SCRIPT_DIR}/fam-basic-node-monitoring.json"
+    "${SCRIPT_DIR}/fam-basic-deploy-monitoring.json"
 )
+FAM_CRON_MANIFEST="${SCRIPT_DIR}/fam-cron-alert.yaml"
 RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
 
 # Get Central URL
@@ -45,12 +47,17 @@ if ! oc whoami &>/dev/null; then
     exit 1
 fi
 
-for policy_file in "${FIM_POLICIES[@]}"; do
+for policy_file in "${FAM_POLICIES[@]}"; do
     if [ ! -f "${policy_file}" ]; then
-        print_error "FIM policy not found: ${policy_file}"
+        print_error "FAM policy file not found: ${policy_file}"
         exit 1
     fi
 done
+
+if [ ! -f "${FAM_CRON_MANIFEST}" ]; then
+    print_error "FAM CronJob manifest not found: ${FAM_CRON_MANIFEST}"
+    exit 1
+fi
 
 if [ -z "${ROX_API_TOKEN:-}" ]; then
     print_error "ROX_API_TOKEN is required. Set it: export ROX_API_TOKEN='your-token'"
@@ -90,20 +97,20 @@ if ! oc patch securedcluster "${SC_NAME}" \
 fi
 
 # Verify patch was applied
-FIM_MODE=$(oc get securedcluster "${SC_NAME}" -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.perNode.fileActivityMonitoring.mode}' 2>/dev/null || echo "")
-if [ "${FIM_MODE}" != "Enabled" ]; then
-    print_error "Patch verification failed: fileActivityMonitoring.mode is '${FIM_MODE}', expected 'Enabled'"
+FAM_MODE=$(oc get securedcluster "${SC_NAME}" -n "${RHACS_NAMESPACE}" -o jsonpath='{.spec.perNode.fileActivityMonitoring.mode}' 2>/dev/null || echo "")
+if [ "${FAM_MODE}" != "Enabled" ]; then
+    print_error "Patch verification failed: fileActivityMonitoring.mode is '${FAM_MODE}', expected 'Enabled'"
     exit 1
 fi
 print_info "✓ File activity monitoring enabled (verified)"
 echo ""
 
 #================================================================
-# Step 2: Submit FIM policies to ACS via API
+# Step 2: Submit FAM policies to ACS via API
 #================================================================
-print_step "2. Submitting FIM policies to ACS via API..."
+print_step "2. Submitting file activity monitoring policies to ACS via API..."
 
-for policy_file in "${FIM_POLICIES[@]}"; do
+for policy_file in "${FAM_POLICIES[@]}"; do
     policy_name=$(jq -r '.policies[0].name' "${policy_file}")
     POLICY_JSON=$(jq '.policies[0] | del(.id, .lastUpdated)' "${policy_file}")
 
@@ -138,14 +145,27 @@ done
 echo ""
 
 #================================================================
-# Next steps: Trigger FIM violations (run manually after install)
+# Step 3: Demo CronJob (periodic touch/read of /etc/passwd in a pod)
+#================================================================
+print_step "3. Applying FAM demo CronJob (${FAM_CRON_MANIFEST##*/})..."
+
+if ! oc apply -f "${FAM_CRON_MANIFEST}"; then
+    print_error "Failed to apply CronJob manifest"
+    exit 1
+fi
+print_info "✓ CronJob rhacs-fam-trigger applied (see manifest for namespace and schedule)"
+echo ""
+
+#================================================================
+# Next steps: Trigger FAM violations (run manually after install)
 #================================================================
 WORKER_NODE=$(oc get nodes -l node-role.kubernetes.io/worker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || \
     oc get nodes -o jsonpath='{.items[1].metadata.name}' 2>/dev/null || echo "worker-0")
 
-print_step "FIM setup complete"
+print_step "File activity monitoring (FAM) setup complete"
 echo ""
-print_info "To trigger FIM violations for demonstration, run these commands:"
+print_info "A CronJob (rhacs-fam-trigger) also runs on a schedule to exercise file-activity checks in-cluster."
+print_info "To trigger file activity violations manually, run these commands:"
 echo ""
 echo "  1. Debug a worker node (detected: ${WORKER_NODE}):"
 echo "       oc debug node/${WORKER_NODE}"
@@ -156,7 +176,7 @@ echo ""
 echo "  3. Trigger a monitored path change:"
 echo "       touch /etc/passwd"
 echo ""
-echo "  4. RHACS UI: Violations → filter by policy fim-basic-node-monitoring"
+echo "  4. RHACS UI: Violations → filter by policy fam-basic-node-monitoring"
 echo ""
 echo "  5. Exit: run exit twice (leave chroot, then leave the debug pod)"
 echo ""
