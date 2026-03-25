@@ -48,51 +48,19 @@ source ~/.bashrc
 ./verify-all-setup.sh
 ----
 
-* Exit code *0* — no failed checks (warnings may appear for optional items such as OLS not configured).
-* Exit code *1* — at least one check failed; inspect the printed messages.
-
-=== Expected success output (install)
-
-When `install-all-setup.sh` completes, you should see *All setup phases completed successfully.* RHACS Central access matches your environment, for example:
-
-[source,sh,subs="attributes"]
+OUTPUT:
+[source,text]
 ----
-[INFO] Central URL: {acs_route}
-[INFO] Username: admin
-[INFO] Admin Password: {acs_portal_password}
+[STEP] Summary
+  ✓ No failed checks (0 warning(s))
 ----
-
-Those values are also shown at the end of `basic-setup` in `basic-setup.log` if you need to confirm.
-
-=== FAM demo (after install)
-
-To trigger file activity monitoring violations for demonstration, use the worker node commands printed at the end of `fam-setup` in the parallel logs, or:
-
-. Get the first worker node and start a debug session:
-+
-[source,sh,subs="attributes",role=execute]
-----
-worker_nodes=$(oc get nodes -l node-role.kubernetes.io/worker --no-headers -o custom-columns=":metadata.name")
-oc debug node/$(echo "$worker_nodes" | head -n1)
-----
-
-. Inside the debug shell, chroot to the host:
-+
-[source,sh]
-----
-chroot /host
-----
-
-. Trigger a monitored path change (simulating a file activity violation):
-+
-[source,sh]
-----
-touch /etc/passwd
-----
-
-. Type `exit` twice to leave the debug shell (once for chroot, once to exit the debug pod).
 
 == Accessing the Consoles
+
+With a proper installation, you should be able to access the following consoles:
+- OpenShift Console
+- RHACS Console
+- Bastion Host
 
 === OpenShift Console
 
@@ -110,6 +78,8 @@ Access the OpenShift Console from the *OpenShift Console* tab in the right panel
 
 Access the RHACS Console from the *RHACS Console* tab in the right panel, or open it directly: {acs_route}[window=blank]
 
+IMPORTANT: login with username and password and NOT with the monitoring option selected.
+
 [cols="1,1"]
 |===
 | *Username:* | {acs_portal_username}
@@ -118,7 +88,7 @@ Access the RHACS Console from the *RHACS Console* tab in the right panel, or ope
 
 === Bastion Host
 
-To access the bastion host, use the following SSH command:
+If you need to access the bastion host, for diagnostics or troubleshooting, use the following SSH command:
 
 [source,sh,subs="attributes",role=execute]
 ----
