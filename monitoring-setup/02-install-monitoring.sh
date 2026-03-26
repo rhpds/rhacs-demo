@@ -5,12 +5,14 @@
 #
 # After MonitoringStack + ScrapeConfig apply, verifies:
 #   - both CRs exist (ScrapeConfig re-applied once if missing)
-#   - Prometheus StatefulSet <MonitoringStack.name>-prometheus exists and rollout completes
+#   - Prometheus becomes ready via: discover StatefulSet/Deployment (name patterns vary by COO version),
+#     or fall back to pods with label app.kubernetes.io/name=prometheus
 #   - on failure, re-applies stack + scrape YAML once then waits again (mitigates first-run races)
 #
 # Optional env:
-#   RHACS_NS / MONITORING_STACK_NAME / SCRAPE_CONFIG_NAME / PROMETHEUS_STS_NAME — override defaults if you renamed CRs
-#   COO_PROMETHEUS_WAIT_SEC — max seconds to wait for operator to create Prometheus STS (default 300)
+#   RHACS_NS / MONITORING_STACK_NAME / SCRAPE_CONFIG_NAME — override defaults if you renamed CRs
+#   PROMETHEUS_ROLLOUT_TARGET — explicit "statefulset/name" or "deployment/name" to wait on (skips discovery)
+#   COO_PROMETHEUS_WAIT_SEC — max seconds to wait for Prometheus workload/pods (default 300)
 #
 
 set -euo pipefail
@@ -34,30 +36,90 @@ cd "$SCRIPT_DIR"
 RHACS_NS="${RHACS_NS:-stackrox}"
 MONITORING_STACK_NAME="${MONITORING_STACK_NAME:-sample-stackrox-monitoring-stack}"
 SCRAPE_CONFIG_NAME="${SCRAPE_CONFIG_NAME:-sample-stackrox-scrape-config}"
-# COO creates Prometheus as StatefulSet named <MonitoringStack.metadata.name>-prometheus
-PROMETHEUS_STS_NAME="${PROMETHEUS_STS_NAME:-${MONITORING_STACK_NAME}-prometheus}"
+# Default COO name; many clusters use a different STS name — see discover_prometheus_rollout_target()
+DEFAULT_PROMETHEUS_STS_NAME="${MONITORING_STACK_NAME}-prometheus"
 MONITORING_STACK_YAML="monitoring-examples/cluster-observability-operator/monitoring-stack.yaml"
 SCRAPE_CONFIG_YAML="monitoring-examples/cluster-observability-operator/scrape-config.yaml"
 
-# Wait for operator to create the Prometheus StatefulSet, then wait for rollout.
-# Optional second attempt: re-apply stack + scrape YAML if the first wait times out (first-run races).
+# Discover workload for `oc rollout status`: explicit PROMETHEUS_ROLLOUT_TARGET, or
+# default STS name, or any STS/Deploy whose name matches this MonitoringStack / prometheus.
+# Prints one line: statefulset/foo or deployment/bar
+discover_prometheus_rollout_target() {
+  local ns="$1"
+  local ms_name="$2"
+  local line
+
+  if [ -n "${PROMETHEUS_ROLLOUT_TARGET:-}" ]; then
+    echo "${PROMETHEUS_ROLLOUT_TARGET}"
+    return 0
+  fi
+
+  if oc get "statefulset/${DEFAULT_PROMETHEUS_STS_NAME}" -n "${ns}" &>/dev/null; then
+    echo "statefulset/${DEFAULT_PROMETHEUS_STS_NAME}"
+    return 0
+  fi
+
+  # Prefer STS tied to this MonitoringStack (name contains CR name + prometheus)
+  line=$(oc get sts -n "${ns}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -F "${ms_name}" | grep -i prometheus | head -1)
+  if [ -n "${line}" ]; then
+    echo "statefulset/${line}"
+    return 0
+  fi
+
+  # Any Prometheus StatefulSet in namespace (COO naming varies by version)
+  line=$(oc get sts -n "${ns}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -i prometheus | head -1)
+  if [ -n "${line}" ]; then
+    echo "statefulset/${line}"
+    return 0
+  fi
+
+  line=$(oc get deploy -n "${ns}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -iE "prometheus.*${ms_name}|${ms_name}.*prometheus|sample-stackrox.*prometheus" | head -1)
+  if [ -n "${line}" ]; then
+    echo "deployment/${line}"
+    return 0
+  fi
+
+  return 1
+}
+
+# Wait for Ready pods carrying the standard Prometheus label (works when rollout target name differs).
+wait_prometheus_pods_ready() {
+  local ns="$1"
+  local timeout_sec="${2:-120}"
+  if ! oc get pods -n "${ns}" -l app.kubernetes.io/name=prometheus -o name 2>/dev/null | grep -q .; then
+    return 1
+  fi
+  oc wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n "${ns}" --timeout="${timeout_sec}s" 2>/dev/null
+}
+
+# Wait for operator Prometheus workload: discovered STS/Deploy rollout, else pod readiness.
 wait_for_coo_prometheus_ready() {
   local attempt_label="$1"
   local max_wait="${COO_PROMETHEUS_WAIT_SEC:-300}"
   local elapsed=0
   local step_wait=10
+  local target
 
   while [ "${elapsed}" -lt "${max_wait}" ]; do
-    if oc get "statefulset/${PROMETHEUS_STS_NAME}" -n "${RHACS_NS}" &>/dev/null; then
-      log "✓ Prometheus StatefulSet ${PROMETHEUS_STS_NAME} exists (${attempt_label})"
-      if oc rollout status "statefulset/${PROMETHEUS_STS_NAME}" -n "${RHACS_NS}" --timeout=240s; then
-        log "✓ Prometheus rollout complete (${PROMETHEUS_STS_NAME})"
+    if target=$(discover_prometheus_rollout_target "${RHACS_NS}" "${MONITORING_STACK_NAME}"); then
+      log "✓ Prometheus workload found: ${target} (${attempt_label})"
+      if oc rollout status "${target}" -n "${RHACS_NS}" --timeout=240s; then
+        log "✓ Rollout complete (${target})"
         return 0
       fi
-      warn "rollout status failed for ${PROMETHEUS_STS_NAME} — will not retry rollout here"
-      return 1
+      warn "rollout not finished for ${target} — checking pod readiness..."
+      if wait_prometheus_pods_ready "${RHACS_NS}" 120; then
+        log "✓ Prometheus pod(s) Ready (workload: ${target})"
+        return 0
+      fi
     fi
-    log "  Waiting for operator to create ${PROMETHEUS_STS_NAME}... (${elapsed}s/${max_wait}s)"
+
+    if wait_prometheus_pods_ready "${RHACS_NS}" 45; then
+      log "✓ Prometheus pod(s) Ready via label app.kubernetes.io/name=prometheus (${attempt_label})"
+      return 0
+    fi
+
+    log "  Waiting for Prometheus workload or pods... (${elapsed}s/${max_wait}s)"
     sleep "${step_wait}"
     elapsed=$((elapsed + step_wait))
   done
@@ -114,7 +176,7 @@ verify_and_finalize_coo_stack() {
     return 0
   fi
 
-  error "Prometheus (${PROMETHEUS_STS_NAME}) did not become ready — check: oc describe monitoringstack ${MONITORING_STACK_NAME} -n ${RHACS_NS}; oc get pods -n ${RHACS_NS} -l app.kubernetes.io/name=prometheus"
+  error "Prometheus did not become ready — check: oc get sts,deploy,pod -n ${RHACS_NS} | grep -i prometheus; oc describe monitoringstack ${MONITORING_STACK_NAME} -n ${RHACS_NS}; optional: export PROMETHEUS_ROLLOUT_TARGET=statefulset/<name>"
   return 1
 }
 

@@ -176,7 +176,15 @@ verify_monitoring() {
     local failed=0
     local ms_name="sample-stackrox-monitoring-stack"
     local scrape_name="sample-stackrox-scrape-config"
-    local prom_sts="${ms_name}-prometheus"
+    local prom_sts default_sts
+    default_sts="${ms_name}-prometheus"
+    prom_sts=$(oc get sts -n "${RHACS_NAMESPACE}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -F "${ms_name}" | grep -i prometheus | head -1)
+    if [ -z "${prom_sts}" ]; then
+        prom_sts=$(oc get sts -n "${RHACS_NAMESPACE}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -i prometheus | head -1)
+    fi
+    if [ -z "${prom_sts}" ]; then
+        prom_sts="${default_sts}"
+    fi
 
     if oc get monitoringstack "${ms_name}" -n "${RHACS_NAMESPACE}" &>/dev/null; then
         print_ok "MonitoringStack ${ms_name} exists in ${RHACS_NAMESPACE}"
@@ -202,8 +210,10 @@ verify_monitoring() {
             print_warn "Prometheus StatefulSet ${prom_sts} not fully ready (readyReplicas=${ready:-?}, desired=${desired:-?})"
             WARNINGS=$((WARNINGS + 1))
         fi
+    elif oc get pods -n "${RHACS_NAMESPACE}" -l app.kubernetes.io/name=prometheus -o name 2>/dev/null | grep -q .; then
+        print_ok "Prometheus pod(s) present (label app.kubernetes.io/name=prometheus); StatefulSet name may differ from ${default_sts}"
     else
-        print_warn "Prometheus StatefulSet ${prom_sts} not found yet (COO may still be reconciling)"
+        print_warn "No Prometheus StatefulSet ${prom_sts} and no pods with app.kubernetes.io/name=prometheus — COO may still be reconciling"
         WARNINGS=$((WARNINGS + 1))
     fi
 
