@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run basic-setup first (sequential), then the other five *-setup installs in parallel.
+# Run basic-setup first (sequential), then the other four *-setup installs in parallel.
 # Order avoids RHACS Central churn (e.g. upgrades/restarts) while other scripts use the API.
 #
 # Typical usage:
@@ -9,7 +9,6 @@
 #
 # You are then prompted for:
 #   - Red Hat subscription (for virt-scanning VM) — press Enter to skip that setup
-#   - OpenShift Lightspeed OLS / LLM (OpenAI) — answer N or Enter to skip OLSConfig only
 #
 # Prerequisites: oc (logged in), jq
 #
@@ -22,10 +21,9 @@
 #
 # Skips (when details not provided at prompt or via env):
 #   - No subscription → virt-scanning-setup is not run
-#   - No LLM / OpenAI details → lightspeed OLSConfig step is skipped (operator install still runs)
 #
 # Non-interactive / CI: INSTALL_ALL_NONINTERACTIVE=1 and set env vars; missing subscription
-# or LLM vars imply the same skips as above.
+# implies the same virt skip as above.
 #
 # After install: ./verify-all-setup.sh
 #
@@ -110,42 +108,6 @@ prompt_subscription_or_skip() {
     export SUBSCRIPTION_PASSWORD="${p}"
 }
 
-# Prompt for Lightspeed OLS (OpenAI); decline or empty key → skip OLSConfig only
-prompt_lightspeed_ols_or_skip() {
-    echo ""
-    print_step "OpenShift Lightspeed (OLSConfig / LLM)"
-    print_info "To create OLSConfig with an OpenAI-compatible API, provide an API key."
-    print_info "Answer N or press Enter to skip OLSConfig (Lightspeed operator still installs)."
-    echo ""
-    local ans=""
-    read -r -p "Configure OLS with OpenAI now? [y/N]: " ans || true
-    if [[ ! "${ans,,}" =~ ^(y|yes)$ ]]; then
-        LIGHTSPEED_SKIP_OLSCONFIG=1
-        LIGHTSPEED_AUTO_OLSCONFIG=0
-        print_info "Skipping OLSConfig; run lightspeed-setup/03-create-olsconfig.sh later if needed."
-        return 0
-    fi
-    local key=""
-    read -r -s -p "OpenAI API key: " key
-    echo "" >&2
-    if [ -z "${key}" ]; then
-        print_warn "No API key entered — skipping OLSConfig."
-        LIGHTSPEED_SKIP_OLSCONFIG=1
-        LIGHTSPEED_AUTO_OLSCONFIG=0
-        return 0
-    fi
-    export OPENAI_API_KEY="${key}"
-    export LLM_PROVIDER="${LLM_PROVIDER:-openai}"
-    local model url
-    read -r -p "Model [gpt-4o-mini]: " model || true
-    export LLM_MODEL="${model:-gpt-4o-mini}"
-    read -r -p "API URL [https://api.openai.com/v1]: " url || true
-    export LLM_URL="${url:-https://api.openai.com/v1}"
-    LIGHTSPEED_SKIP_OLSCONFIG=0
-    LIGHTSPEED_AUTO_OLSCONFIG=1
-    print_info "OLSConfig will be applied non-interactively (OpenAI)."
-}
-
 generate_rox_api_token() {
     local central_url="${ROX_CENTRAL_ADDRESS:-}"
     local password="${ROX_PASSWORD:-}"
@@ -216,31 +178,10 @@ apply_noninteractive_skips() {
         SKIP_VIRT_SCANNING=1
         print_info "No SUBSCRIPTION_USERNAME — skipping virt-scanning-setup"
     fi
-
-    # Lightspeed OLS: need API key + provider fields for auto OLS
-    LIGHTSPEED_SKIP_OLSCONFIG="${LIGHTSPEED_SKIP_OLSCONFIG:-0}"
-    if [ "${LIGHTSPEED_SKIP_OLSCONFIG}" = "1" ]; then
-        LIGHTSPEED_AUTO_OLSCONFIG=0
-        print_info "LIGHTSPEED_SKIP_OLSCONFIG=1 — OLSConfig step will not run"
-        return 0
-    fi
-    if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${LLM_API_KEY:-}" ]; then
-        if [ -z "${LLM_PROVIDER:-}" ]; then export LLM_PROVIDER=openai; fi
-        if [ -z "${LLM_MODEL:-}" ]; then export LLM_MODEL=gpt-4o-mini; fi
-        if [ -z "${LLM_URL:-}" ]; then export LLM_URL=https://api.openai.com/v1; fi
-        LIGHTSPEED_AUTO_OLSCONFIG=1
-        print_info "LLM env present — OLSConfig will run non-interactively"
-    else
-        LIGHTSPEED_SKIP_OLSCONFIG=1
-        LIGHTSPEED_AUTO_OLSCONFIG=0
-        print_info "No OPENAI_API_KEY/LLM_API_KEY — skipping OLSConfig (operator install still runs if lightspeed-setup is enabled)"
-    fi
 }
 
 main() {
     SKIP_VIRT_SCANNING="${SKIP_VIRT_SCANNING:-0}"
-    LIGHTSPEED_SKIP_OLSCONFIG="${LIGHTSPEED_SKIP_OLSCONFIG:-0}"
-    LIGHTSPEED_AUTO_OLSCONFIG=0
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -319,7 +260,7 @@ main() {
 
     ensure_rox_api_token || exit 1
 
-    # ---- Subscription + Lightspeed prompts (interactive) or env (noninteractive) ----
+    # ---- Subscription prompt (interactive) or env (noninteractive) ----
     if [ "${NONINTERACTIVE}" = "1" ]; then
         apply_noninteractive_skips
     elif [ -t 0 ] && [ -t 1 ]; then
@@ -333,34 +274,16 @@ main() {
             fi
             print_info "Using subscription username from environment."
         fi
-
-        if [ "${SKIP_LIGHTSPEED_SETUP:-0}" != "1" ]; then
-            if [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${LLM_API_KEY:-}" ]; then
-                if [ -z "${LLM_PROVIDER:-}" ]; then export LLM_PROVIDER=openai; fi
-                if [ -z "${LLM_MODEL:-}" ]; then export LLM_MODEL=gpt-4o-mini; fi
-                if [ -z "${LLM_URL:-}" ]; then export LLM_URL=https://api.openai.com/v1; fi
-                LIGHTSPEED_AUTO_OLSCONFIG=1
-                LIGHTSPEED_SKIP_OLSCONFIG=0
-                print_info "Using LLM credentials from environment for OLSConfig."
-            elif [ "${LIGHTSPEED_SKIP_OLSCONFIG:-0}" != "1" ]; then
-                prompt_lightspeed_ols_or_skip
-            fi
-        fi
     else
         apply_noninteractive_skips
     fi
 
     export SKIP_VIRT_SCANNING
-    export LIGHTSPEED_SKIP_OLSCONFIG LIGHTSPEED_AUTO_OLSCONFIG
 
     export GRPC_ENFORCE_ALPN_ENABLED="${GRPC_ENFORCE_ALPN_ENABLED:-false}"
 
     export ROX_CENTRAL_ADDRESS ROX_PASSWORD ROX_API_TOKEN RHACS_NAMESPACE RHACS_ROUTE_NAME \
-        OPENAI_API_KEY LLM_API_KEY LLM_PROVIDER LLM_MODEL LLM_URL \
-        AZURE_DEPLOYMENT AZURE_API_VERSION WATSONX_PROJECT_ID \
-        SUBSCRIPTION_USERNAME SUBSCRIPTION_PASSWORD DEPLOY_SAMPLE_VMS MCP_NAMESPACE \
-        OLS_CONFIG_ONLY LLM_SECRET_NAME LIGHTSPEED_NAMESPACE \
-        LIGHTSPEED_SKIP_OLSCONFIG LIGHTSPEED_AUTO_OLSCONFIG
+        SUBSCRIPTION_USERNAME SUBSCRIPTION_PASSWORD DEPLOY_SAMPLE_VMS MCP_NAMESPACE
 
     echo ""
     print_step "Setup phases (logs under ${LOG_DIR})..."
@@ -408,10 +331,7 @@ main() {
         print_info "Started ${n} (pid ${pid}) → ${lg}"
     }
 
-    print_step "Phase 2: lightspeed, FAM, monitoring, MCP, virt-scanning (parallel)"
-    if [ "${SKIP_LIGHTSPEED_SETUP:-0}" != "1" ]; then
-        add_job lightspeed-setup "${REPO_ROOT}/lightspeed-setup/install.sh"
-    fi
+    print_step "Phase 2: FAM, monitoring, MCP, virt-scanning (parallel)"
     if [ "${SKIP_FAM_SETUP:-0}" != "1" ] && [ "${SKIP_FIM_SETUP:-0}" != "1" ]; then
         add_job fam-setup "${REPO_ROOT}/fam-setup/install.sh"
     fi

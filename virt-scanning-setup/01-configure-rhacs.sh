@@ -37,6 +37,8 @@ trap 'error_handler $? $LINENO' ERR
 # Configuration
 readonly CNV_NAMESPACE="openshift-cnv"
 readonly RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly HCO_VSOCK_PATCH_FILE="${SCRIPT_DIR}/hyperconverged-vsock-annotations-patch.yaml"
 
 #================================================================
 # Apply ROX_VIRTUAL_MACHINES to Central, Sensor, Collector (compliance container)
@@ -174,44 +176,13 @@ patch_hyperconverged_vsock() {
         print_info "✓ VSOCK feature gate already enabled"
     else
         print_info "Adding VSOCK via JSON patch annotation on HyperConverged..."
-        
-        # Multi-line jsonpatch string so `oc get hyperconverged -o yaml` shows block style (|-).
-        # Semantics match single-line JSON; newlines are insignificant to the parser.
-        # No trailing newline on the annotation value encourages YAML |-/block output from oc get.
-        local patch_json
-        if command -v python3 &>/dev/null; then
-            patch_json=$(
-                python3 <<'PY'
-import json
 
-jsonpatch = """[
-  {
-    "op":"add",
-    "path":"/spec/configuration/developerConfiguration/featureGates/-",
-    "value":"VSOCK"
-  }
-]""".rstrip("\n")
-
-print(
-    json.dumps(
-        {
-            "metadata": {
-                "annotations": {
-                    "deployOVS": "false",
-                    "kubevirt.kubevirt.io/jsonpatch": jsonpatch,
-                }
-            }
-        }
-    )
-)
-PY
-            )
-        else
-            print_warn "python3 not found — applying compact single-line jsonpatch (same effect)"
-            patch_json='{"metadata":{"annotations":{"deployOVS":"false","kubevirt.kubevirt.io/jsonpatch":"[{\"op\":\"add\",\"path\":\"/spec/configuration/developerConfiguration/featureGates/-\",\"value\":\"VSOCK\"}]"}}}'
+        if [ ! -f "${HCO_VSOCK_PATCH_FILE}" ]; then
+            print_error "Patch file not found: ${HCO_VSOCK_PATCH_FILE}"
+            return 1
         fi
 
-        oc patch hyperconverged "${hco_name}" -n "${CNV_NAMESPACE}" --type=merge -p "${patch_json}"
+        oc patch hyperconverged "${hco_name}" -n "${CNV_NAMESPACE}" --type=merge --patch-file="${HCO_VSOCK_PATCH_FILE}"
         
         print_info "✓ Annotation applied to HyperConverged"
         print_info "  Waiting for HCO to propagate changes (30s)..."

@@ -189,25 +189,6 @@ main() {
     mcp_oc rollout status deployment/stackrox-mcp -n "${MCP_NAMESPACE}" --timeout=120s || true
     echo ""
 
-    # OpenShift Lightspeed integration (optional)
-    if [ -f "${SCRIPT_DIR}/02-configure-lightspeed-integration.sh" ]; then
-        if mcp_oc get namespace openshift-lightspeed &>/dev/null && mcp_oc get olsconfig cluster -n openshift-lightspeed &>/dev/null; then
-            if [ "${USE_STATIC_AUTH}" = true ]; then
-                print_step "Configuring OpenShift Lightspeed integration..."
-                if bash "${SCRIPT_DIR}/02-configure-lightspeed-integration.sh"; then
-                    print_info "✓ Lightspeed integration configured"
-                else
-                    print_warn "Lightspeed integration failed (non-fatal)"
-                fi
-                echo ""
-            else
-                print_info "Skipping Lightspeed integration (ROX_API_TOKEN required)"
-            fi
-        else
-            print_info "OpenShift Lightspeed not detected - skipping integration"
-        fi
-    fi
-
     # Summary
     print_step "Deployment complete"
     echo "=========================================="

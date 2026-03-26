@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Verify cluster state for each *-setup install (basic, lightspeed, FAM, monitoring, MCP, virt).
+# Verify cluster state for each *-setup install (basic, FAM, monitoring, MCP, virt).
 #
 # Usage:
 #   ./verify-all-setup.sh
@@ -35,7 +35,6 @@ print_fail() { echo -e "  ${RED}✗${NC} $*"; }
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
-LIGHTSPEED_NAMESPACE="${LIGHTSPEED_NAMESPACE:-openshift-lightspeed}"
 MCP_NAMESPACE="${MCP_NAMESPACE:-stackrox-mcp}"
 # CronJob rhacs-fam-exec-trigger is created in the app namespace (install.sh default: payments)
 FAM_CRON_NAMESPACE="${FAM_CRON_NAMESPACE:-payments}"
@@ -107,56 +106,6 @@ verify_basic() {
         print_ok "SecuredCluster CR present"
     else
         print_warn "No SecuredCluster in ${RHACS_NAMESPACE}"
-        WARNINGS=$((WARNINGS + 1))
-    fi
-
-    return "${failed}"
-}
-
-verify_lightspeed() {
-    print_step "lightspeed-setup"
-    local failed=0
-
-    if ! oc get namespace "${LIGHTSPEED_NAMESPACE}" &>/dev/null; then
-        print_fail "Namespace ${LIGHTSPEED_NAMESPACE} not found"
-        return 1
-    fi
-    print_ok "Namespace ${LIGHTSPEED_NAMESPACE} exists"
-
-    local pods_ready=0
-    pods_ready=$(oc get pods -n "${LIGHTSPEED_NAMESPACE}" --no-headers 2>/dev/null | awk '$3=="Running"{c++} END{print c+0}')
-    if [ "${pods_ready:-0}" -ge 1 ] 2>/dev/null; then
-        print_ok "At least one pod Running in ${LIGHTSPEED_NAMESPACE}"
-    else
-        print_warn "No Running pods in ${LIGHTSPEED_NAMESPACE} yet"
-        WARNINGS=$((WARNINGS + 1))
-    fi
-
-    if oc get olsconfig cluster -n "${LIGHTSPEED_NAMESPACE}" &>/dev/null; then
-        print_ok "OLSConfig cluster exists"
-        # OLS publishes overallStatus (e.g. Ready) and per-component conditions (ApiReady, CacheReady, — not type "Ready")
-        local overall api_ready cache_ready plugin_ready legacy_ready
-        overall=$(oc get olsconfig cluster -n "${LIGHTSPEED_NAMESPACE}" -o jsonpath='{.status.overallStatus}' 2>/dev/null || echo "")
-        api_ready=$(oc get olsconfig cluster -n "${LIGHTSPEED_NAMESPACE}" -o jsonpath='{.status.conditions[?(@.type=="ApiReady")].status}' 2>/dev/null || echo "")
-        cache_ready=$(oc get olsconfig cluster -n "${LIGHTSPEED_NAMESPACE}" -o jsonpath='{.status.conditions[?(@.type=="CacheReady")].status}' 2>/dev/null || echo "")
-        plugin_ready=$(oc get olsconfig cluster -n "${LIGHTSPEED_NAMESPACE}" -o jsonpath='{.status.conditions[?(@.type=="ConsolePluginReady")].status}' 2>/dev/null || echo "")
-        legacy_ready=$(oc get olsconfig cluster -n "${LIGHTSPEED_NAMESPACE}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
-
-        if [ "${overall}" = "Ready" ]; then
-            print_ok "OLSConfig overallStatus=Ready"
-        elif [ "${legacy_ready}" = "True" ]; then
-            print_ok "OLSConfig Ready=True (legacy condition)"
-        elif [ "${api_ready}" = "True" ] && [ "${cache_ready}" = "True" ] && [ "${plugin_ready}" = "True" ]; then
-            print_ok "OLSConfig component conditions all True (Api/Cache/ConsolePlugin)"
-        elif [ -n "${overall}" ]; then
-            print_warn "OLSConfig overallStatus=${overall} (expected Ready when fully reconciled)"
-            WARNINGS=$((WARNINGS + 1))
-        else
-            print_warn "OLSConfig status not Ready yet (overallStatus empty; ApiReady=${api_ready:-?} CacheReady=${cache_ready:-?} ConsolePluginReady=${plugin_ready:-?})"
-            WARNINGS=$((WARNINGS + 1))
-        fi
-    else
-        print_warn "OLSConfig not found (skipped LLM step or not created yet)"
         WARNINGS=$((WARNINGS + 1))
     fi
 
@@ -327,13 +276,6 @@ main() {
         :
     else
         verify_basic || FAILURES=$((FAILURES + 1))
-    fi
-    echo ""
-
-    if skip_section "lightspeed-setup" "VERIFY_SKIP_LIGHTSPEED" "SKIP_LIGHTSPEED_SETUP"; then
-        :
-    else
-        verify_lightspeed || FAILURES=$((FAILURES + 1))
     fi
     echo ""
 

@@ -35,7 +35,6 @@ cd mcp-server-setup
 2. Deploys the MCP server to `stackrox-mcp` namespace
 3. Creates an OpenShift Route for external access
 4. Configures connection to RHACS Central (auto-detected or from `ROX_CENTRAL_ADDRESS`)
-5. **If OpenShift Lightspeed is installed:** configures MCP integration automatically
 
 ## Environment Variables
 
@@ -73,28 +72,6 @@ curl -k https://$(oc get route stackrox-mcp -n stackrox-mcp -o jsonpath='{.spec.
 # Expected: {"status":"ok"}
 ```
 
-## OpenShift Lightspeed Integration
-
-When OpenShift Lightspeed is installed and `ROX_API_TOKEN` is set, the install script automatically configures the integration:
-
-1. Creates `stackrox-mcp-authorization-header` secret in `openshift-lightspeed` namespace
-2. Patches `OLSConfig` to add `MCPServer` feature gate and StackRox MCP server
-
-**Prerequisites:**
-- OpenShift Lightspeed installed (`./lightspeed-setup/install.sh`)
-- OLSConfig created with LLM provider
-- `ROX_API_TOKEN` set (run `basic-setup/install.sh` first)
-
-**Manual configuration** (if install.sh skips it):
-
-```bash
-./mcp-server-setup/02-configure-lightspeed-integration.sh
-```
-
-**Test:** In OpenShift Lightspeed, try: *"List all clusters secured by StackRox"*
-
-Based on [StackRox MCP OpenShift Lightspeed Integration Guide](https://github.com/stackrox/stackrox-mcp) (tested with Lightspeed 1.0.8).
-
 ## Manifests
 
 The `manifests/` directory contains Kubernetes resources:
@@ -114,8 +91,7 @@ The install script substitutes `ROX_CENTRAL_ADDRESS`, `ROX_API_TOKEN`, and `MCP_
 
 | Script | Description |
 |--------|-------------|
-| `install.sh` | Main deployment + optional Lightspeed integration |
-| `02-configure-lightspeed-integration.sh` | Configure StackRox MCP in OpenShift Lightspeed OLSConfig |
+| `install.sh` | Main deployment |
 
 ## References
 

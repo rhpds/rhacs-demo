@@ -4,14 +4,13 @@
 
 == Setup Instructions
 
-Use the single orchestration script `install-all-setup.sh` at the root of the demo repository. It runs *basic-setup* first (so RHACS Central stays stable while APIs are configured), then runs the other demo stacks in parallel: Lightspeed, FAM (file activity monitoring), monitoring, MCP, and VM vulnerability scanning.
+Use the single orchestration script `install-all-setup.sh` at the root of the demo repository. It runs *basic-setup* first (so RHACS Central stays stable while APIs are configured), then runs the other demo stacks in parallel: FAM (file activity monitoring), monitoring, MCP, and VM vulnerability scanning.
 
 === Requirements
 
 Before you start, on the *Bastion* host collect the following information if you want to use the optional features:
 
 * *Optional — Red Hat subscription* — username and password to entitle the demo Virtual Machine (`virt-scanning-setup`).
-* *Optional — OpenShift Lightspeed OLSConfig* — an OpenAI-compatible API key (and optional model/URL) if you want the "Ask OpenShift Lightspeed" flow.
 
 === Procedure
 
@@ -31,7 +30,6 @@ chmod +x install-all-setup.sh verify-all-setup.sh
 . Follow the prompts:
 +
 * *Red Hat subscription* — enter credentials for VM scanning, or press Enter to skip `virt-scanning-setup`.
-* *Lightspeed OLS* — answer `y` and provide an API key (and defaults for model/URL if prompted), or `N` to skip creating `OLSConfig` while still installing the operator.
 
 . Wait until the script finishes. You should see *Phase 1* (basic-setup) complete, then *Phase 2* parallel jobs start and *Waiting for N parallel job(s)* complete without errors.
 
