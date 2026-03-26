@@ -9,6 +9,14 @@
 # Optional env:
 #   FAM_SKIP_CRONJOB=1        — do not apply the exec CronJob manifest
 #   FAM_SKIP_WORKLOAD_EXEC=1  — do not run one-shot oc exec into the demo workload
+#   FAM_SKIP_INITIAL_JOB=1    — after CronJob apply, do not create a one-off Job (first scheduled run can be up to 10m)
+#   FAM_SKIP_VIOLATION_WAIT=1 — do not poll RHACS for a deploy FAM violation (groups API + fallbacks)
+#   FAM_REQUIRE_VIOLATION=1   — exit non-zero if no alert for the deploy policy before wait timeout
+#   FAM_POST_POLICY_SLEEP_SEC — sleep after policies before triggers (default 15; sensor/policy propagation)
+#   FAM_VIOLATION_WAIT_SEC    — max time to poll APIs (default 420)
+#   FAM_VIOLATION_POLL_SEC    — interval between polls (default 15)
+#   FAM_DEPLOY_POLICY_NAME    — policy to check via API (default fam-basic-deploy-monitoring)
+#   FAM_INITIAL_JOB_TIMEOUT_SEC — oc wait for the immediate Job from CronJob (default 180)
 #   FAM_EXEC_NAMESPACE        — default payments (also rewrites the CronJob manifest on apply)
 #   FAM_EXEC_WORKLOAD         — default deployment/mastercard-processor
 #   FAM_EXEC_CONTAINER        — optional -c name for multi-container pods
@@ -36,6 +44,7 @@ RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
 FAM_EXEC_NAMESPACE="${FAM_EXEC_NAMESPACE:-payments}"
 FAM_EXEC_WORKLOAD="${FAM_EXEC_WORKLOAD:-deployment/mastercard-processor}"
 FAM_EXEC_CONTAINER="${FAM_EXEC_CONTAINER:-}"
+FAM_DEPLOY_POLICY_NAME="${FAM_DEPLOY_POLICY_NAME:-fam-basic-deploy-monitoring}"
 
 # Get Central URL
 get_central_url() {
@@ -86,6 +95,101 @@ CENTRAL_URL=$(get_central_url) || {
 }
 
 API_BASE="${CENTRAL_URL}/v1"
+
+# Violations are alerts. Check grouped counts via:
+#   GET ${CENTRAL_URL}/v1/alerts/summary/groups?query=Policy:"<policy-name>"
+# Example host (replace with your route / ROX_CENTRAL_ADDRESS):
+#   https://central-stackrox.apps.cluster-7drtp.dynamic.redhatworkshops.io/v1/alerts/summary/groups?query=Policy:%22fam-basic-deploy-monitoring%22
+# Response: { "alertsByPolicies": [ { "policy": { "name": "..." }, "numAlerts": "..." } ] }
+
+# Fetch GET /v1/alerts/summary/groups; optional second arg "noquery" skips Policy filter (retry path).
+_alerts_summary_groups_body() {
+    local policy="$1"
+    local mode="${2:-query}"
+    local response http_code body
+    if [ "${mode}" = "query" ]; then
+        local search_q="Policy:\"${policy}\""
+        response=$(curl -k -s -w "\n%{http_code}" -G "${API_BASE}/alerts/summary/groups" \
+            -H "Authorization: Bearer ${ROX_API_TOKEN}" \
+            --data-urlencode "query=${search_q}" 2>/dev/null) || return 1
+    else
+        response=$(curl -k -s -w "\n%{http_code}" -G "${API_BASE}/alerts/summary/groups" \
+            -H "Authorization: Bearer ${ROX_API_TOKEN}" 2>/dev/null) || return 1
+    fi
+    http_code=$(echo "${response}" | tail -n1)
+    body=$(echo "${response}" | sed '$d')
+    if [ "${http_code}" != "200" ]; then
+        return 1
+    fi
+    printf '%s' "${body}"
+}
+
+# Prefer GET /v1/alerts/summary/groups with Policy query; then same URL without query; then alertscount; then list alerts.
+alert_count_from_groups() {
+    local policy="$1"
+    local body=""
+    body=$(_alerts_summary_groups_body "${policy}" "query" 2>/dev/null) || body=""
+    if [ -z "${body}" ]; then
+        body=$(_alerts_summary_groups_body "${policy}" "noquery" 2>/dev/null) || body=""
+    fi
+    if [ -z "${body}" ]; then
+        return 1
+    fi
+    echo "${body}" | jq -r --arg p "${policy}" '
+      ((.alertsByPolicies // .alerts_by_policies // [])
+        | map(select(.policy.name == $p))
+        | .[0]
+        | (.numAlerts // .num_alerts)
+      )
+      // 0
+      | if type == "string" then tonumber else . end
+    ' 2>/dev/null || echo "0"
+}
+
+alert_count_for_policy() {
+    local policy="$1"
+    local query="Policy:\"${policy}\""
+    local response http_code body
+    response=$(curl -k -s -w "\n%{http_code}" -G "${API_BASE}/alertscount" \
+        -H "Authorization: Bearer ${ROX_API_TOKEN}" \
+        --data-urlencode "query=${query}" 2>/dev/null) || return 1
+    http_code=$(echo "${response}" | tail -n1)
+    body=$(echo "${response}" | sed '$d')
+    if [ "${http_code}" != "200" ]; then
+        return 1
+    fi
+    echo "${body}" | jq -r '.count // 0' 2>/dev/null || echo "0"
+}
+
+# Fallback: list alerts with Policy search query + pagination cap.
+alert_count_fallback_list() {
+    local policy="$1"
+    local search_q="Policy:\"${policy}\""
+    local response http_code body
+    response=$(curl -k -s -w "\n%{http_code}" -G "${API_BASE}/alerts" \
+        -H "Authorization: Bearer ${ROX_API_TOKEN}" \
+        --data-urlencode "query=${search_q}" \
+        --data-urlencode "pagination.limit=100" 2>/dev/null) || return 1
+    http_code=$(echo "${response}" | tail -n1)
+    body=$(echo "${response}" | sed '$d')
+    if [ "${http_code}" != "200" ]; then
+        return 1
+    fi
+    echo "${body}" | jq -r --arg p "${policy}" '[.alerts[]? | select(.policy.name == $p)] | length' 2>/dev/null || echo "0"
+}
+
+fam_deploy_violation_count() {
+    local policy="$1"
+    local c
+    c=$(alert_count_from_groups "${policy}" 2>/dev/null | tr -d '\n\r ') || c=""
+    if [ -z "${c}" ] || ! [[ "${c}" =~ ^[0-9]+$ ]]; then
+        c=$(alert_count_for_policy "${policy}" 2>/dev/null | tr -d '\n\r ') || c=""
+    fi
+    if [ -z "${c}" ] || ! [[ "${c}" =~ ^[0-9]+$ ]]; then
+        c=$(alert_count_fallback_list "${policy}" 2>/dev/null | tr -d '\n\r ') || c="0"
+    fi
+    echo "${c:-0}"
+}
 
 #================================================================
 # Step 1: Enable file activity monitoring on SecuredCluster
@@ -153,6 +257,12 @@ for policy_file in "${FAM_POLICIES[@]}"; do
     fi
     print_info "✓ ${policy_name} submitted"
 done
+
+if [ "${FAM_SKIP_POST_POLICY_SLEEP:-0}" != "1" ]; then
+    _sleep="${FAM_POST_POLICY_SLEEP_SEC:-15}"
+    print_info "Waiting ${_sleep}s for policy/sensor propagation before FAM triggers..."
+    sleep "${_sleep}"
+fi
 echo ""
 
 #================================================================
@@ -181,6 +291,24 @@ else
         fi
     fi
     print_info "✓ CronJob rhacs-fam-exec-trigger in ${FAM_EXEC_NAMESPACE} (every 10m → oc exec ${FAM_EXEC_WORKLOAD} -- touch /etc/passwd)"
+
+    # One-off Job uses the same pod spec as the CronJob so the first demo does not wait for the next schedule.
+    if [ "${FAM_SKIP_INITIAL_JOB:-0}" != "1" ] && oc get "${FAM_EXEC_WORKLOAD}" -n "${FAM_EXEC_NAMESPACE}" &>/dev/null; then
+        JOB_NAME="rhacs-fam-exec-initial-$(date +%s)"
+        print_info "Creating immediate Job ${JOB_NAME} from CronJob (same as scheduled exec)..."
+        if oc create job "${JOB_NAME}" --from=cronjob/rhacs-fam-exec-trigger -n "${FAM_EXEC_NAMESPACE}" &>/dev/null; then
+            _ijt="${FAM_INITIAL_JOB_TIMEOUT_SEC:-180}"
+            if oc wait --for=condition=complete "job/${JOB_NAME}" -n "${FAM_EXEC_NAMESPACE}" --timeout="${_ijt}s" &>/dev/null; then
+                print_info "✓ Initial Job completed (CronJob-based oc exec)"
+            else
+                print_warn "Initial Job did not report Complete within ${_ijt}s — check: oc describe job/${JOB_NAME} -n ${FAM_EXEC_NAMESPACE}; oc logs -n ${FAM_EXEC_NAMESPACE} -l job-name=${JOB_NAME} --tail=50"
+            fi
+        else
+            print_warn "Could not create Job from CronJob (rbac or CronJob not ready) — rely on step 4 or next CronJob run"
+        fi
+    elif [ "${FAM_SKIP_INITIAL_JOB:-0}" != "1" ]; then
+        print_info "Workload ${FAM_EXEC_WORKLOAD} not in ${FAM_EXEC_NAMESPACE} — skipping immediate Job from CronJob"
+    fi
 fi
 echo ""
 
@@ -212,6 +340,45 @@ fi
 echo ""
 
 #================================================================
+# Step 5: Verify deploy FAM violation via API (GET /v1/alerts/summary/groups → alertsByPolicies / numAlerts; fallbacks: alertscount, list alerts)
+#================================================================
+print_step "5. Verifying policy violation (RHACS API: alerts/summary/groups for ${FAM_DEPLOY_POLICY_NAME})..."
+
+if [ "${FAM_SKIP_VIOLATION_WAIT:-0}" = "1" ]; then
+    print_info "Skipping (FAM_SKIP_VIOLATION_WAIT=1)"
+else
+    _deadline="${FAM_VIOLATION_WAIT_SEC:-420}"
+    _every="${FAM_VIOLATION_POLL_SEC:-15}"
+    _start=$(date +%s)
+    _seen=0
+    while true; do
+        _count=$(fam_deploy_violation_count "${FAM_DEPLOY_POLICY_NAME}")
+        _count=${_count:-0}
+        if [ "${_count}" -ge 1 ] 2>/dev/null; then
+            print_info "✓ At least one active alert/violation for policy '${FAM_DEPLOY_POLICY_NAME}' (numAlerts=${_count})"
+            print_info "  API: GET ${CENTRAL_URL}/v1/alerts/summary/groups?query=Policy:%22${FAM_DEPLOY_POLICY_NAME}%22 → check alertsByPolicies[].numAlerts"
+            _seen=1
+            break
+        fi
+        _now=$(date +%s)
+        if [ $((_now - _start)) -ge "${_deadline}" ]; then
+            break
+        fi
+        print_info "  No alert yet for '${FAM_DEPLOY_POLICY_NAME}' (count=${_count:-0}); polling every ${_every}s (max ${_deadline}s total)..."
+        sleep "${_every}"
+    done
+    if [ "${_seen}" != "1" ]; then
+        print_warn "Timed out waiting for violation (policy '${FAM_DEPLOY_POLICY_NAME}'). FAM can lag after first exec — check RHACS Violations UI, or:"
+        print_warn "  curl -k -G \"${CENTRAL_URL}/v1/alerts/summary/groups\" -H \"Authorization: Bearer \${ROX_API_TOKEN}\" --data-urlencode 'query=Policy:\"${FAM_DEPLOY_POLICY_NAME}\"' | jq '.alertsByPolicies[] | select(.policy.name==\"${FAM_DEPLOY_POLICY_NAME}\")'"
+        if [ "${FAM_REQUIRE_VIOLATION:-0}" = "1" ]; then
+            print_error "FAM_REQUIRE_VIOLATION=1 but no matching alert was observed."
+            exit 1
+        fi
+    fi
+fi
+echo ""
+
+#================================================================
 # Next steps: Trigger FAM violations (run manually after install)
 #================================================================
 WORKER_NODE=$(oc get nodes -l node-role.kubernetes.io/worker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || \
@@ -221,6 +388,7 @@ print_step "File activity monitoring (FAM) setup complete"
 echo ""
 print_info "CronJob rhacs-fam-exec-trigger (unless skipped) runs every 10 minutes with oc exec into ${FAM_EXEC_WORKLOAD} (${FAM_EXEC_NAMESPACE})."
 print_info "Step 4 runs one immediate oc exec when that workload exists (override with FAM_EXEC_* env)."
+print_info "Step 5 polls GET ${CENTRAL_URL}/v1/alerts/summary/groups?query=Policy:%22${FAM_DEPLOY_POLICY_NAME}%22 (alertsByPolicies / numAlerts), then alertscount / alerts if needed."
 print_info "To trigger node-level FAM manually, run these commands:"
 echo ""
 echo "  1. Debug a worker node (detected: ${WORKER_NODE}):"
