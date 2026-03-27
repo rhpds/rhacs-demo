@@ -13,6 +13,7 @@
 #   RHACS_NS / MONITORING_STACK_NAME / SCRAPE_CONFIG_NAME — override defaults if you renamed CRs
 #   PROMETHEUS_ROLLOUT_TARGET — explicit "statefulset/name" or "deployment/name" to wait on (skips discovery)
 #   COO_PROMETHEUS_WAIT_SEC — max seconds to wait for Prometheus workload/pods (default 300)
+#   MONITORING_SKIP_PROMETHEUS_READY_WAIT=1 — only verify MonitoringStack + ScrapeConfig CRs (no STS/pod wait)
 #
 
 set -euo pipefail
@@ -92,6 +93,34 @@ wait_prometheus_pods_ready() {
   oc wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n "${ns}" --timeout="${timeout_sec}s" 2>/dev/null
 }
 
+# True if Prometheus is already serving: Service has endpoints, or any *prometheus* pod is Ready (COO label/name varies).
+prometheus_stack_observable() {
+  local ns="$1"
+  local svc="${MONITORING_STACK_NAME}-prometheus"
+  local addr pod r
+
+  if oc get "svc/${svc}" -n "${ns}" &>/dev/null; then
+    addr=$(oc get endpoints "${svc}" -n "${ns}" -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
+    if [ -n "${addr}" ]; then
+      return 0
+    fi
+    addr=$(oc get endpointslice -n "${ns}" -l "kubernetes.io/service-name=${svc}" -o jsonpath='{.items[0].endpoints[0].addresses[0]}' 2>/dev/null || true)
+    if [ -n "${addr}" ]; then
+      return 0
+    fi
+  fi
+
+  while IFS= read -r pod; do
+    [ -z "${pod}" ] && continue
+    r=$(oc get pod "${pod}" -n "${ns}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
+    if [ "${r}" = "True" ]; then
+      return 0
+    fi
+  done < <(oc get pods -n "${ns}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | grep -i prometheus || true)
+
+  return 1
+}
+
 # Wait for operator Prometheus workload: discovered STS/Deploy rollout, else pod readiness.
 wait_for_coo_prometheus_ready() {
   local attempt_label="$1"
@@ -100,7 +129,16 @@ wait_for_coo_prometheus_ready() {
   local step_wait=10
   local target
 
+  if prometheus_stack_observable "${RHACS_NS}"; then
+    log "✓ Prometheus already operational (Service endpoints or Ready *prometheus* pod) — ${attempt_label}"
+    return 0
+  fi
+
   while [ "${elapsed}" -lt "${max_wait}" ]; do
+    if prometheus_stack_observable "${RHACS_NS}"; then
+      log "✓ Prometheus became operational — ${attempt_label}"
+      return 0
+    fi
     if target=$(discover_prometheus_rollout_target "${RHACS_NS}" "${MONITORING_STACK_NAME}"); then
       log "✓ Prometheus workload found: ${target} (${attempt_label})"
       if oc rollout status "${target}" -n "${RHACS_NS}" --timeout=240s; then
@@ -161,6 +199,11 @@ verify_and_finalize_coo_stack() {
       error "ScrapeConfig ${SCRAPE_CONFIG_NAME} still missing after re-apply"
       return 1
     fi
+  fi
+
+  if [ "${MONITORING_SKIP_PROMETHEUS_READY_WAIT:-0}" = "1" ]; then
+    warn "Skipping Prometheus readiness wait (MONITORING_SKIP_PROMETHEUS_READY_WAIT=1) — CRs only"
+    return 0
   fi
 
   if wait_for_coo_prometheus_ready "attempt 1"; then

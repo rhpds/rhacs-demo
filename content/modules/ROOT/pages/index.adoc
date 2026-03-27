@@ -10,7 +10,44 @@ Use the single orchestration script `install-all-setup.sh` at the root of the de
 
 Before you start, on the *Bastion* host collect the following information if you want to use the optional features:
 
-* *Optional — Red Hat subscription* — username and password to entitle the demo Virtual Machine (`virt-scanning-setup`).
+* Red Hat subscription* — organization ID and activation key to entitle the demo Virtual Machine (`virt-scanning-setup`).
+
+=== Creating an activation key for RHEL 9 (organization admin)
+
+To set up an activation key for your RHEL 9 VM in your organization, an administrator creates the key in the Red Hat Hybrid Cloud Console, then you register the VM using that key. Activation keys are suited to organizations because they allow automated registration, automatic subscription attachment, and consistent configuration (for example, system purpose and repositories) without sharing usernames and passwords.
+
+*Step 1 — Create an activation key*
+
+You must have the appropriate permissions (RHC administrator role or equivalent) in your organization's Red Hat account.
+
+. Log in to the https://console.redhat.com[Red Hat Hybrid Cloud Console,window=blank].
+. Navigate to *Services* > *System Configuration* > *Activation Keys* (or, in some views, *Inventory* > *System Configuration* > *Activation Keys*).
+. Click *Create activation key* and provide:
++
+--
+
+* Name and Description
+** Name — Use the default
+** Description (optional)
+
+* *Workload*
+** Latest Release
+
+* *System purpose* - Development/Test
+** Role: Red Hat Linux Server
+** Service Level Agreement (SLA): Self-Support
+** Usage: Development/Test
+
+* *Service Level Agreement (SLA)* — Self-Support
+* *System purpose* - Development/Test
+* *Subscriptions* — Select the Red Hat subscriptions or pools you want this key to auto-attach (for example, RHEL entitlements for physical or virtual systems). You can enable auto-attach if desired.
+--
+. Review and click *Create*.
+
+IMPORTANT: Note the following for use with `install-all-setup.sh`:
+
+* The activation key *name*.
+* Your organization's *Organization ID* (a numeric value, visible at the top of the Activation Keys page or under your account details).
 
 === Procedure
 
@@ -29,7 +66,7 @@ chmod +x install-all-setup.sh verify-all-setup.sh
 
 . Follow the prompts:
 +
-* *Red Hat subscription* — enter credentials for VM scanning, or press Enter to skip `virt-scanning-setup`.
+* *Red Hat subscription* — enter organization ID and activation key for VM scanning, or press Enter at the organization prompt to skip `virt-scanning-setup`.
 
 . Wait until the script finishes. You should see *Phase 1* (basic-setup) complete, then *Phase 2* parallel jobs start and *Waiting for N parallel job(s)* complete without errors.
 

@@ -60,7 +60,7 @@ spec:
               password: redhat
               chpasswd: { expire: false }
               runcmd:
-                - sudo subscription-manager register --username=$SUBSCRIPTION_USERNAME --password="$SUBSCRIPTION_PASSWORD"
+                - sudo subscription-manager register --org="$SUBSCRIPTION_ORG_ID" --activationkey="$SUBSCRIPTION_ACTIVATION_KEY"
                 - sudo subscription-manager release --set=9.4
                 - |
                   sudo subscription-manager repos \

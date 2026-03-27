@@ -49,5 +49,5 @@ node_modules
 setup-files/init-bundles/
 virt-scanning/vm-config.env
 
-# VM setup script (may contain Red Hat subscription credentials)
+# VM setup script (may contain Red Hat subscription / activation key notes)
 virt-scanning-setup/backups/setup.sh

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script: 02-deploy-sample-vms.sh
-# Description: Apply rhel-webserver-vm.yaml with username/password substituted
+# Description: Apply rhel-webserver-vm.yaml with org ID + activation key substituted (RHSM)
 # Requires: 01-configure-rhacs.sh run first (RHACS + VSOCK)
 
 set -euo pipefail
@@ -32,23 +32,23 @@ if [ ! -f "${VM_TEMPLATE}" ]; then
     exit 1
 fi
 
-# Prompt for Red Hat subscription credentials (for VM entitlement)
-if [ -z "${SUBSCRIPTION_USERNAME:-}" ]; then
+# Red Hat Subscription Manager: organization ID + activation key (see https://access.redhat.com/management/activation_keys)
+if [ -z "${SUBSCRIPTION_ORG_ID:-}" ]; then
     echo ""
-    print_step "Red Hat subscription credentials (to entitle the VM)"
-    read -r -p "Red Hat username: " SUBSCRIPTION_USERNAME
-    [ -z "${SUBSCRIPTION_USERNAME}" ] && { print_error "Username is required"; exit 1; }
+    print_step "Red Hat subscription (organization ID + activation key)"
+    read -r -p "Organization ID: " SUBSCRIPTION_ORG_ID
+    [ -z "${SUBSCRIPTION_ORG_ID}" ] && { print_error "Organization ID is required"; exit 1; }
 fi
-if [ -z "${SUBSCRIPTION_PASSWORD:-}" ]; then
-    read -r -s -p "Red Hat password: " SUBSCRIPTION_PASSWORD
+if [ -z "${SUBSCRIPTION_ACTIVATION_KEY:-}" ]; then
+    read -r -s -p "Activation key: " SUBSCRIPTION_ACTIVATION_KEY
     echo ""
-    [ -z "${SUBSCRIPTION_PASSWORD}" ] && { print_error "Password is required"; exit 1; }
+    [ -z "${SUBSCRIPTION_ACTIVATION_KEY}" ] && { print_error "Activation key is required"; exit 1; }
 fi
-export SUBSCRIPTION_USERNAME SUBSCRIPTION_PASSWORD
+export SUBSCRIPTION_ORG_ID SUBSCRIPTION_ACTIVATION_KEY
 
-# Substitute credentials and apply VM template
+# Substitute and apply VM template
 print_step "Applying rhel-webserver-vm.yaml..."
-envsubst '$SUBSCRIPTION_USERNAME $SUBSCRIPTION_PASSWORD' < "${VM_TEMPLATE}" | oc apply -f -
+envsubst '$SUBSCRIPTION_ORG_ID $SUBSCRIPTION_ACTIVATION_KEY' < "${VM_TEMPLATE}" | oc apply -f -
 
 print_info "✓ VM rhel-webserver applied"
 echo ""

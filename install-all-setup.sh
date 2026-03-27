@@ -8,7 +8,7 @@
 #   ./install-all-setup.sh '<rhacs-admin-password>'    # same (first positional arg = password)
 #
 # You are then prompted for:
-#   - Red Hat subscription (for virt-scanning VM) — press Enter to skip that setup
+#   - Red Hat subscription (for virt-scanning VM): organization ID + activation key — press Enter to skip org and skip that setup
 #
 # Prerequisites: oc (logged in), jq
 #
@@ -20,10 +20,10 @@
 # If ROX_API_TOKEN is already exported, -p is optional.
 #
 # Skips (when details not provided at prompt or via env):
-#   - No subscription → virt-scanning-setup is not run
+#   - No org ID / activation key → virt-scanning-setup is not run
 #
-# Non-interactive / CI: INSTALL_ALL_NONINTERACTIVE=1 and set env vars; missing subscription
-# implies the same virt skip as above.
+# Non-interactive / CI: INSTALL_ALL_NONINTERACTIVE=1 and set SUBSCRIPTION_ORG_ID + SUBSCRIPTION_ACTIVATION_KEY;
+# missing either implies the same virt skip as above.
 #
 # After install: ./verify-all-setup.sh
 #
@@ -80,32 +80,32 @@ prompt_if_missing() {
     export "${vn}"
 }
 
-# Prompt for RHEL subscription; empty username → skip virt-scanning
+# Prompt for RHEL subscription (organization ID + activation key); empty org → skip virt-scanning
 prompt_subscription_or_skip() {
     echo ""
     print_step "Red Hat subscription (virt-scanning)"
-    print_info "The VM scanning demo needs a subscription to entitle the sample VM."
-    print_info "Press Enter without typing a username to skip virt-scanning-setup."
+    print_info "The VM scanning demo uses an organization ID and activation key to register the sample VM."
+    print_info "Press Enter without typing an organization ID to skip virt-scanning-setup."
     echo ""
-    local u=""
-    read -r -p "Red Hat subscription username: " u || true
-    if [ -z "${u}" ]; then
+    local org=""
+    read -r -p "Red Hat organization ID: " org || true
+    if [ -z "${org}" ]; then
         SKIP_VIRT_SCANNING=1
-        unset SUBSCRIPTION_USERNAME SUBSCRIPTION_PASSWORD 2>/dev/null || true
+        unset SUBSCRIPTION_ORG_ID SUBSCRIPTION_ACTIVATION_KEY 2>/dev/null || true
         print_info "Skipping virt-scanning-setup."
         return 0
     fi
-    export SUBSCRIPTION_USERNAME="${u}"
-    local p=""
-    read -r -s -p "Red Hat subscription password: " p
+    export SUBSCRIPTION_ORG_ID="${org}"
+    local ak=""
+    read -r -s -p "Activation key: " ak
     echo "" >&2
-    if [ -z "${p}" ]; then
-        print_warn "Empty password — skipping virt-scanning-setup."
+    if [ -z "${ak}" ]; then
+        print_warn "Empty activation key — skipping virt-scanning-setup."
         SKIP_VIRT_SCANNING=1
-        unset SUBSCRIPTION_USERNAME SUBSCRIPTION_PASSWORD 2>/dev/null || true
+        unset SUBSCRIPTION_ORG_ID SUBSCRIPTION_ACTIVATION_KEY 2>/dev/null || true
         return 0
     fi
-    export SUBSCRIPTION_PASSWORD="${p}"
+    export SUBSCRIPTION_ACTIVATION_KEY="${ak}"
 }
 
 generate_rox_api_token() {
@@ -173,10 +173,12 @@ wait_for_pid() {
 }
 
 apply_noninteractive_skips() {
-    # Subscription: no username → skip virt
-    if [ "${SKIP_VIRT_SCANNING:-0}" != "1" ] && [ -z "${SUBSCRIPTION_USERNAME:-}" ]; then
-        SKIP_VIRT_SCANNING=1
-        print_info "No SUBSCRIPTION_USERNAME — skipping virt-scanning-setup"
+    # Subscription: need both org ID and activation key
+    if [ "${SKIP_VIRT_SCANNING:-0}" != "1" ]; then
+        if [ -z "${SUBSCRIPTION_ORG_ID:-}" ] || [ -z "${SUBSCRIPTION_ACTIVATION_KEY:-}" ]; then
+            SKIP_VIRT_SCANNING=1
+            print_info "SUBSCRIPTION_ORG_ID and SUBSCRIPTION_ACTIVATION_KEY both required — skipping virt-scanning-setup"
+        fi
     fi
 }
 
@@ -264,15 +266,21 @@ main() {
     if [ "${NONINTERACTIVE}" = "1" ]; then
         apply_noninteractive_skips
     elif [ -t 0 ] && [ -t 1 ]; then
-        if [ "${SKIP_VIRT_SCANNING:-0}" != "1" ] && [ -z "${SUBSCRIPTION_USERNAME:-}" ]; then
+        if [ "${SKIP_VIRT_SCANNING:-0}" != "1" ] && [ -z "${SUBSCRIPTION_ORG_ID:-}" ]; then
             prompt_subscription_or_skip
-        elif [ -n "${SUBSCRIPTION_USERNAME:-}" ]; then
-            if [ -z "${SUBSCRIPTION_PASSWORD:-}" ]; then
-                read -r -s -p "Red Hat subscription password: " SUBSCRIPTION_PASSWORD
+        elif [ -n "${SUBSCRIPTION_ORG_ID:-}" ]; then
+            if [ -z "${SUBSCRIPTION_ACTIVATION_KEY:-}" ]; then
+                read -r -s -p "Red Hat activation key: " SUBSCRIPTION_ACTIVATION_KEY
                 echo "" >&2
-                export SUBSCRIPTION_PASSWORD
+                export SUBSCRIPTION_ACTIVATION_KEY
             fi
-            print_info "Using subscription username from environment."
+            if [ -z "${SUBSCRIPTION_ACTIVATION_KEY:-}" ]; then
+                print_warn "Empty activation key — skipping virt-scanning-setup."
+                SKIP_VIRT_SCANNING=1
+                unset SUBSCRIPTION_ORG_ID SUBSCRIPTION_ACTIVATION_KEY 2>/dev/null || true
+            else
+                print_info "Using subscription organization ID from environment."
+            fi
         fi
     else
         apply_noninteractive_skips
@@ -283,7 +291,7 @@ main() {
     export GRPC_ENFORCE_ALPN_ENABLED="${GRPC_ENFORCE_ALPN_ENABLED:-false}"
 
     export ROX_CENTRAL_ADDRESS ROX_PASSWORD ROX_API_TOKEN RHACS_NAMESPACE RHACS_ROUTE_NAME \
-        SUBSCRIPTION_USERNAME SUBSCRIPTION_PASSWORD DEPLOY_SAMPLE_VMS MCP_NAMESPACE
+        SUBSCRIPTION_ORG_ID SUBSCRIPTION_ACTIVATION_KEY DEPLOY_SAMPLE_VMS MCP_NAMESPACE
 
     echo ""
     print_step "Setup phases (logs under ${LOG_DIR})..."
