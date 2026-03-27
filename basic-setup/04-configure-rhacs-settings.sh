@@ -41,8 +41,6 @@ trap 'error_handler $? $LINENO' ERR
 # Default values
 RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
 ROX_CENTRAL_ADDRESS="${ROX_CENTRAL_ADDRESS:-}"
-ROX_PASSWORD="${ROX_PASSWORD:-}"
-
 # Function to check if jq is installed
 ensure_jq() {
     if command -v jq >/dev/null 2>&1; then
@@ -67,31 +65,6 @@ ensure_jq() {
     return 1
 }
 
-# Function to get admin password (try multiple sources)
-get_admin_password() {
-    # First try environment variable
-    if [ -n "${ROX_PASSWORD:-}" ]; then
-        echo "${ROX_PASSWORD}"
-        return 0
-    fi
-    
-    # Try central-htpasswd secret
-    local password=$(oc get secret central-htpasswd -n "${RHACS_NAMESPACE}" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
-    if [ -n "${password}" ]; then
-        echo "${password}"
-        return 0
-    fi
-    
-    # Try admin-password secret
-    password=$(oc get secret admin-password -n "${RHACS_NAMESPACE}" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
-    if [ -n "${password}" ]; then
-        echo "${password}"
-        return 0
-    fi
-    
-    return 1
-}
-
 # Function to get Central URL
 get_central_url() {
     if [ -n "${ROX_CENTRAL_ADDRESS}" ]; then
@@ -106,32 +79,6 @@ get_central_url() {
         return 0
     fi
     
-    return 1
-}
-
-# Function to get admin password from cluster secrets
-get_admin_password() {
-    # First check environment variable
-    if [ -n "${ROX_PASSWORD:-}" ]; then
-        echo "${ROX_PASSWORD}"
-        return 0
-    fi
-    
-    # Try to get from central-htpasswd secret (OpenShift installer)
-    local password=$(oc get secret central-htpasswd -n "${RHACS_NAMESPACE}" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
-    if [ -n "${password}" ]; then
-        echo "${password}"
-        return 0
-    fi
-    
-    # Try to get from admin-password secret (RHACS Operator)
-    password=$(oc get secret admin-password -n "${RHACS_NAMESPACE}" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
-    if [ -n "${password}" ]; then
-        echo "${password}"
-        return 0
-    fi
-    
-    print_error "Could not retrieve RHACS admin password"
     return 1
 }
 
@@ -346,15 +293,6 @@ main() {
     if ! ensure_jq; then
         exit 1
     fi
-    
-    # Get admin password (try multiple sources)
-    local password=$(get_admin_password)
-    if [ -z "${password}" ]; then
-        print_error "Could not determine admin password"
-        print_error "Please provide password via ROX_PASSWORD environment variable or ensure RHACS secrets exist"
-        exit 1
-    fi
-    print_info "✓ Admin password retrieved"
     
     # Get Central URL
     print_info "Getting Central URL..."

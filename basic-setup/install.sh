@@ -6,7 +6,7 @@
 #   ./install.sh [PASSWORD]
 #
 # Arguments:
-#   PASSWORD    Optional: RHACS Central admin password (sets ROX_PASSWORD)
+#   PASSWORD    Optional: RHACS Central admin password (sets ROX_PASSWORD); not needed if ROX_API_TOKEN is set
 #
 # Examples:
 #   ./install.sh                      # Use password from environment or ~/.bashrc
@@ -430,9 +430,14 @@ main() {
     if ! check_variable "ROX_CENTRAL_ADDRESS" "RHACS Central URL for API access and roxctl CLI"; then
         missing_vars=$((missing_vars + 1))
     fi
-    print_info "Checking ROX_PASSWORD..."
-    if ! check_variable "ROX_PASSWORD" "RHACS Central password for API access and roxctl CLI"; then
-        missing_vars=$((missing_vars + 1))
+    print_info "Checking RHACS API credentials..."
+    if [ -n "${ROX_API_TOKEN:-}" ] && [ "${#ROX_API_TOKEN}" -ge 20 ]; then
+        print_info "✓ ROX_API_TOKEN is set — ROX_PASSWORD is not required"
+    else
+        print_info "Checking ROX_PASSWORD (needed only when ROX_API_TOKEN is not set)..."
+        if ! check_variable "ROX_PASSWORD" "RHACS Central password (used to generate ROX_API_TOKEN if missing)"; then
+            missing_vars=$((missing_vars + 1))
+        fi
     fi
     
     # Optional but recommended variables
@@ -459,7 +464,7 @@ main() {
         print_error ""
         print_error "Required variables:"
         print_error "  - ROX_CENTRAL_ADDRESS"
-        print_error "  - ROX_PASSWORD"
+        print_error "  - ROX_API_TOKEN, or ROX_PASSWORD (to generate a token)"
         print_error ""
         exit 1
     fi

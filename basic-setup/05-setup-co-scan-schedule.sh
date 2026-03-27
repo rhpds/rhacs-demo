@@ -30,7 +30,6 @@ print_step() {
 RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
 COMPLIANCE_NAMESPACE="${COMPLIANCE_NAMESPACE:-openshift-compliance}"
 ROX_CENTRAL_ADDRESS="${ROX_CENTRAL_ADDRESS:-}"
-ROX_PASSWORD="${ROX_PASSWORD:-}"
 SCAN_NAME="acs-catch-all"
 
 # Function to ensure jq is installed
@@ -373,12 +372,6 @@ main() {
     print_step "Checking prerequisites..."
     
     if ! ensure_jq; then
-        exit 1
-    fi
-    
-    if [ -z "${ROX_PASSWORD}" ]; then
-        print_error "ROX_PASSWORD is not set"
-        print_error "Please provide the password as an argument to install.sh"
         exit 1
     fi
     

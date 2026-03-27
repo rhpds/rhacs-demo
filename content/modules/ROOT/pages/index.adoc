@@ -8,17 +8,26 @@ Use the single orchestration script `install-all-setup.sh` at the root of the de
 
 === Requirements
 
-Before you start, on the *Bastion* host collect the following information if you want to use the optional features:
+*RHACS Central — URL, API token, and admin password*
 
-* Red Hat subscription* — organization ID and activation key to entitle the demo Virtual Machine (`virt-scanning-setup`).
+The *Bastion* host often pre-loads `~/.bashrc` with `GUID`, `CLOUDUSER`, `ROX_CENTRAL_ADDRESS`, and `ROX_API_TOKEN`. When those variables are present, the installer uses them for API access.
 
+Always keep the RHACS admin password from the workshop materials at hand. The install procedure passes it with `-p` so that if `~/.bashrc` is missing, empty, or the variables are not exported, the scripts can still reach Central and generate or refresh `ROX_API_TOKEN`. Passing `-p` together with a pre-loaded token is safe: an existing `ROX_API_TOKEN` is used first.
+
+*Optional — VM vulnerability scanning*
+
+If you use the optional VM scanning stack, collect the following (see <<activation-key-rhel9,activation key instructions>>):
+
+* *Red Hat subscription* — organization ID and activation key to entitle the demo Virtual Machine (`virt-scanning-setup`).
+
+[[activation-key-rhel9]]
 === Creating an activation key for RHEL 9 (organization admin)
 
 To set up an activation key for your RHEL 9 VM in your organization, an administrator creates the key in the Red Hat Hybrid Cloud Console, then you register the VM using that key. Activation keys are suited to organizations because they allow automated registration, automatic subscription attachment, and consistent configuration (for example, system purpose and repositories) without sharing usernames and passwords.
 
 *Step 1 — Create an activation key*
 
-You must have the appropriate permissions (RHC administrator role or equivalent) in your organization's Red Hat account.
+NOTE: You must have the appropriate permissions in your organization's Red Hat account. 
 
 . Log in to the https://console.redhat.com[Red Hat Hybrid Cloud Console,window=blank].
 . Navigate to *Services* > *System Configuration* > *Activation Keys* (or, in some views, *Inventory* > *System Configuration* > *Activation Keys*).
@@ -49,11 +58,16 @@ IMPORTANT: Note the following for use with `install-all-setup.sh`:
 * The activation key *name*.
 * Your organization's *Organization ID* (a numeric value, visible at the top of the Activation Keys page or under your account details).
 
-=== Procedure
+=== Installation Procedure
 
 [start=1]
-. Open the *Bastion* tab.
-. Clone or update the repository and run the installer:
+. Load your shell profile so pre-provisioned variables (including `ROX_API_TOKEN`) are set in the environment:
++
+[source,sh,subs="attributes",role=execute]
+----
+source ~/.bashrc
+----
+. Copy and paste the following command into your terminal:
 +
 [source,sh,subs="attributes",role=execute]
 ----
@@ -63,6 +77,8 @@ cd ~/rhacs-demo && git pull
 chmod +x install-all-setup.sh verify-all-setup.sh
 ./install-all-setup.sh -p {acs_portal_password}
 ----
+
+NOTE: The `-p` argument ensures the run succeeds even when `~/.bashrc` does not define `ROX_API_TOKEN` or `ROX_CENTRAL_ADDRESS`. If a token is already in the environment, it is used and the password is not needed for API calls.
 
 . Follow the prompts:
 +
@@ -113,7 +129,9 @@ Access the OpenShift Console from the *OpenShift Console* tab in the right panel
 
 Access the RHACS Console from the *RHACS Console* tab in the right panel, or open it directly: {acs_route}[window=blank]
 
-IMPORTANT: login with username and password and NOT with the monitoring option selected.
+For *browser* access, log in with the lab-supplied credentials if shown in the workshop UI. Choose the standard username and password option, not the monitoring-only login path.
+
+Automation prefers `ROX_API_TOKEN` when it is set; the admin password you pass with `-p` covers token generation when the environment variables are missing.
 
 [cols="1,1"]
 |===
