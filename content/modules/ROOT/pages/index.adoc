@@ -19,7 +19,9 @@ First, it runs the *basic-setup* then runs the other 5 scripts in parallel inclu
 
 All requirements are setup in the *basic-setup* script. However, if you want to set up the VM scanning stack, you will need to create an activation key for RHEL 9(see <<activation-key-rhel9,activation key instructions>>).
 
-If you do not require the VM scanning stack, you can skip the activation key creation step. The installation script will skip the VM scanning stack.
+You can also message @foster for an organization ID and activation key, but it's preferable to create your own.
+
+NOTE: If you do not require the VM scanning stack, you can skip the activation key creation step. The installation script will skip the VM scanning stack.
 
 [[activation-key-rhel9]]
 === Creating an activation key for RHEL 9
