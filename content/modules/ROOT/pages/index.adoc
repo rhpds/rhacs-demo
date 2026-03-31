@@ -105,9 +105,9 @@ OUTPUT:
 == Accessing the Consoles
 
 With a proper installation, you should be able to access the following consoles:
-- OpenShift Console
-- RHACS Console
-- Bastion Host
+
+* OpenShift Console
+* RHACS Console
 
 === OpenShift Console
 
@@ -125,9 +125,7 @@ Access the OpenShift Console from the *OpenShift Console* tab in the right panel
 
 Access the RHACS Console from the *RHACS Console* tab in the right panel, or open it directly: {acs_route}[window=blank]
 
-For *browser* access, log in with the lab-supplied credentials if shown in the workshop UI. Choose the standard username and password option, not the monitoring-only login path.
-
-Automation prefers `ROX_API_TOKEN` when it is set; the admin password you pass with `-p` covers token generation when the environment variables are missing.
+NOTE: Choose the standard *username* and *password* option, and NOT the monitoring login path.
 
 [cols="1,1"]
 |===
