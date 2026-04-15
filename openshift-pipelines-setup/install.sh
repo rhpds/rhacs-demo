@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 #
 # Tekton / OpenShift Pipelines demo — RHACS roxctl tasks and sample pipeline (roadshow module 05).
-# Applies namespace pipeline-demo, Secret roxsecrets (Central host:443 + API token), Tasks, and Pipeline rox-pipeline.
+# Applies namespace pipeline-demo, Secret roxsecrets (Central host:443 + API token), Tasks, and Pipelines (rox-pipeline, rox-log4shell-pipeline).
 #
 # Prerequisites:
 #   - oc logged in; OpenShift Pipelines operator installed (Tekton Task/Pipeline CRDs available)
 #   - RHACS Central route in RHACS_NAMESPACE (default stackrox), or ROX_CENTRAL_ADDRESS set
-#   - ROX_API_TOKEN — same as basic-setup (Admin or CI-capable token)
+#   - API_TOKEN or ROX_API_TOKEN — RHACS API token (Admin or CI-capable); ~/.bashrc may export API_TOKEN
+#   - ROXCTL_CENTRAL_ENDPOINT or Central route / ROX_CENTRAL_ADDRESS — host:port for roxctl -e (no https://)
 #
 # Optional env:
 #   PIPELINE_NAMESPACE  — default pipeline-demo
@@ -34,7 +35,7 @@ RHACS_NS="${RHACS_NAMESPACE:-stackrox}"
 export_bashrc_vars() {
   [ ! -f ~/.bashrc ] && return 0
   local var line
-  for var in ROX_CENTRAL_ADDRESS ROX_API_TOKEN RHACS_NAMESPACE; do
+  for var in ROX_CENTRAL_ADDRESS ROX_API_TOKEN ROXCTL_CENTRAL_ENDPOINT API_TOKEN RHACS_NAMESPACE; do
     line=$(grep -E "^(export[[:space:]]+)?${var}=" ~/.bashrc 2>/dev/null | head -1) || true
     [ -z "${line}" ] && continue
     if grep -qE '\$\(|`' <<< "${line}"; then
@@ -46,18 +47,9 @@ export_bashrc_vars() {
   done
 }
 
-# host:port for roxctl -e (no scheme)
-resolve_central_endpoint_port() {
-  local host=""
-  host=$(oc get route central -n "${RHACS_NS}" -o jsonpath='{.spec.host}' 2>/dev/null || true)
-  if [ -n "${host}" ]; then
-    echo "${host}:443"
-    return 0
-  fi
-  local url="${ROX_CENTRAL_ADDRESS:-}"
-  if [ -z "${url}" ]; then
-    return 1
-  fi
+# host:port for roxctl -e (no scheme); accepts bare host, host:port, or http(s) URL
+normalize_central_endpoint() {
+  local url="$1"
   url="${url#https://}"
   url="${url#http://}"
   url="${url%%/*}"
@@ -68,8 +60,52 @@ resolve_central_endpoint_port() {
   fi
 }
 
+# host:port for roxctl -e when ROXCTL_CENTRAL_ENDPOINT is unset
+resolve_central_endpoint_port() {
+  local host=""
+  host=$(oc get route central -n "${RHACS_NS}" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+  if [ -n "${host}" ]; then
+    normalize_central_endpoint "${host}"
+    return 0
+  fi
+  local url="${ROX_CENTRAL_ADDRESS:-}"
+  if [ -z "${url}" ]; then
+    return 1
+  fi
+  normalize_central_endpoint "${url}"
+}
+
+# Renders the same Secret schema as manifests/secrets/rox-secrets.yml and applies it.
+apply_rox_secrets_manifest() {
+  local endpoint="$1"
+  local token="$2"
+  local ns="$3"
+  export _INSTALL_ROX_EP="${endpoint}"
+  export _INSTALL_ROX_TK="${token}"
+  export _INSTALL_ROX_NS="${ns}"
+  python3 -c '
+import json, os, sys
+ep, tk, ns = os.environ["_INSTALL_ROX_EP"], os.environ["_INSTALL_ROX_TK"], os.environ["_INSTALL_ROX_NS"]
+for v in (ep, tk, ns):
+    if "\x00" in v:
+        print("refusing secret value containing NUL", file=sys.stderr)
+        sys.exit(1)
+print("""apiVersion: v1
+kind: Secret
+metadata:
+  name: roxsecrets
+  namespace: %s
+type: Opaque
+stringData:
+  rox_central_endpoint: %s
+  rox_api_token: %s
+""" % (ns, json.dumps(ep), json.dumps(tk)))
+' | oc apply -f -
+  unset _INSTALL_ROX_EP _INSTALL_ROX_TK _INSTALL_ROX_NS
+}
+
 main() {
-  print_info "OpenShift Pipelines / Tekton — RHACS CI demo (rox-pipeline)"
+  print_info "OpenShift Pipelines / Tekton — RHACS CI demo (rox-pipeline, rox-log4shell-pipeline)"
   echo ""
 
   if ! command -v oc &>/dev/null; then
@@ -88,18 +124,28 @@ main() {
     RHACS_NS="${RHACS_NAMESPACE}"
   fi
 
-  if [ -z "${ROX_API_TOKEN:-}" ] || [ ${#ROX_API_TOKEN} -lt 20 ]; then
-    print_error "ROX_API_TOKEN is required (generate via basic-setup or RHACS UI)."
+  local rox_token=""
+  if [ -n "${API_TOKEN:-}" ]; then
+    rox_token="${API_TOKEN}"
+  elif [ -n "${ROX_API_TOKEN:-}" ]; then
+    rox_token="${ROX_API_TOKEN}"
+  fi
+  if [ -z "${rox_token}" ] || [ ${#rox_token} -lt 20 ]; then
+    print_error "API_TOKEN or ROX_API_TOKEN is required (generate via basic-setup or RHACS UI). Export one in this shell or ~/.bashrc."
     print_info "To rerun: bash \"${SCRIPT_DIR}/install.sh\""
     exit 1
   fi
 
-  local endpoint
-  endpoint=$(resolve_central_endpoint_port) || {
-    print_error "Could not resolve Central endpoint. Set ROX_CENTRAL_ADDRESS or ensure route 'central' exists in ${RHACS_NS}."
-    print_info "To rerun: bash \"${SCRIPT_DIR}/install.sh\""
-    exit 1
-  }
+  local endpoint=""
+  if [ -n "${ROXCTL_CENTRAL_ENDPOINT:-}" ]; then
+    endpoint=$(normalize_central_endpoint "${ROXCTL_CENTRAL_ENDPOINT}")
+  else
+    endpoint=$(resolve_central_endpoint_port) || {
+      print_error "Could not resolve Central endpoint. Set ROXCTL_CENTRAL_ENDPOINT, ROX_CENTRAL_ADDRESS, or ensure route 'central' exists in ${RHACS_NS}."
+      print_info "To rerun: bash \"${SCRIPT_DIR}/install.sh\""
+      exit 1
+    }
+  fi
 
   if ! oc get crd tasks.tekton.dev &>/dev/null; then
     print_error "Tekton Task CRD (tasks.tekton.dev) not found. Install OpenShift Pipelines from OperatorHub, then retry."
@@ -110,22 +156,25 @@ main() {
   print_step "Applying namespace ${PIPELINE_NS}..."
   oc apply -f "${MANIFESTS}/namespace.yaml"
 
-  print_step "Creating Secret roxsecrets in ${PIPELINE_NS}..."
-  oc create secret generic roxsecrets -n "${PIPELINE_NS}" \
-    --from-literal=rox_central_endpoint="${endpoint}" \
-    --from-literal=rox_api_token="${ROX_API_TOKEN}" \
-    --dry-run=client -o yaml | oc apply -f -
+  print_step "Applying Secret roxsecrets in ${PIPELINE_NS} (rox_central_endpoint from ROXCTL_CENTRAL_ENDPOINT or route/ROX_CENTRAL_ADDRESS; rox_api_token from API_TOKEN or ROX_API_TOKEN)..."
+  if ! command -v python3 &>/dev/null; then
+    print_error "python3 is required to render manifests/secrets/rox-secrets.yml for oc apply."
+    print_info "To rerun: bash \"${SCRIPT_DIR}/install.sh\""
+    exit 1
+  fi
+  apply_rox_secrets_manifest "${endpoint}" "${rox_token}" "${PIPELINE_NS}"
 
   print_step "Applying Tekton Tasks (rox-image-scan, rox-image-check, rox-deployment-check)..."
   oc apply -f "${MANIFESTS}/tasks/"
 
-  print_step "Applying Pipeline rox-pipeline..."
+  print_step "Applying Pipelines (rox-pipeline, rox-log4shell-pipeline)..."
   oc apply -f "${MANIFESTS}/pipeline/"
 
   print_info ""
   print_info "✓ Tekton resources applied in ${PIPELINE_NS}"
-  print_info "  Console: Pipelines → Project ${PIPELINE_NS} → PipelineRuns — start rox-pipeline with param image=<full image ref>"
-  print_info "  Example: tkn pipeline start rox-pipeline -n ${PIPELINE_NS} -p image=quay.io/example/app:latest"
+  print_info "  Console: Pipelines → Project ${PIPELINE_NS} → PipelineRuns"
+  print_info "  Fixed image (log4shell): tkn pipeline start rox-log4shell-pipeline -n ${PIPELINE_NS}"
+  print_info "  Custom image: tkn pipeline start rox-pipeline -n ${PIPELINE_NS} -p image=quay.io/example/app:latest"
   print_info ""
   print_info "Manifest templates (module 05) live under: ${MANIFESTS}"
 }

@@ -4,11 +4,12 @@ metadata:
   name: rox-pipeline
   namespace: pipeline-demo
 spec:
-  description: Rox demo pipeline
+  description: >-
+    RHACS roxctl scan of any container image you supply via the image parameter.
   params:
     - name: image
       type: string
-      description: Full name of image to scan (example -- gcr.io/rox/sample:5.0-rc1)
+      description: Full name of image to scan (example — gcr.io/rox/sample:5.0-rc1)
   tasks:
   - name: image-scan
     taskRef:

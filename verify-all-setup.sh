@@ -308,12 +308,15 @@ verify_openshift_pipelines() {
         fi
     done
 
-    if oc get pipeline rox-pipeline -n "${ns}" &>/dev/null; then
-        print_ok "Pipeline rox-pipeline exists"
-    else
-        print_fail "Pipeline rox-pipeline not found in ${ns}"
-        failed=1
-    fi
+    local p
+    for p in rox-pipeline rox-log4shell-pipeline; do
+        if oc get pipeline "${p}" -n "${ns}" &>/dev/null; then
+            print_ok "Pipeline ${p} exists"
+        else
+            print_fail "Pipeline ${p} not found in ${ns}"
+            failed=1
+        fi
+    done
 
     if oc get secret roxsecrets -n "${ns}" &>/dev/null; then
         print_ok "Secret roxsecrets exists"
