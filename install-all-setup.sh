@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 #
 # Run basic-setup first (sequential), then the other *-setup installs in parallel (FAM, monitoring,
-# MCP, virt-scanning, OpenShift Pipelines/Tekton RHACS tasks, and GitOps-deployed RHACS custom policies).
+# MCP, OpenShift Pipelines/Tekton RHACS tasks, and GitOps-deployed RHACS custom policies).
 # Order avoids RHACS Central churn (e.g. upgrades/restarts) while other scripts use the API.
 #
 # Typical usage:
 #   ./install-all-setup.sh -p '<rhacs-admin-password>'
 #   ./install-all-setup.sh '<rhacs-admin-password>'    # same (first positional arg = password)
-#
-# You are then prompted for:
-#   - Red Hat subscription (for virt-scanning VM): organization ID + activation key — press Enter to skip org and skip that setup
 #
 # Prerequisites: oc (logged in), jq
 #
@@ -20,15 +17,9 @@
 #
 # If ROX_API_TOKEN is already exported, -p is optional.
 #
-# Skips (when details not provided at prompt or via env):
-#   - No org ID / activation key → virt-scanning-setup is not run
-#
 # Optional skip flags (export before running):
 #   SKIP_OPENSHIFT_PIPELINES_SETUP=1 — do not run openshift-pipelines-setup/install.sh (Tekton / rox-pipeline)
 #   SKIP_CUSTOM_POLICIES_SETUP=1 — do not run custom-policies/install.sh (OpenShift GitOps / Argo CD)
-#
-# Non-interactive / CI: INSTALL_ALL_NONINTERACTIVE=1 and set SUBSCRIPTION_ORG_ID + SUBSCRIPTION_ACTIVATION_KEY;
-# missing either implies the same virt skip as above.
 #
 # After install: ./verify-all-setup.sh
 #
@@ -90,34 +81,6 @@ prompt_if_missing() {
     export "${vn}"
 }
 
-# Prompt for RHEL subscription (organization ID + activation key); empty org → skip virt-scanning
-prompt_subscription_or_skip() {
-    echo ""
-    print_step "Red Hat subscription (virt-scanning)"
-    print_info "The VM scanning demo uses an organization ID and activation key to register the sample VM."
-    print_info "Press Enter without typing an organization ID to skip virt-scanning-setup."
-    echo ""
-    local org=""
-    read -r -p "Red Hat organization ID: " org || true
-    if [ -z "${org}" ]; then
-        SKIP_VIRT_SCANNING=1
-        unset SUBSCRIPTION_ORG_ID SUBSCRIPTION_ACTIVATION_KEY 2>/dev/null || true
-        print_info "Skipping virt-scanning-setup."
-        return 0
-    fi
-    export SUBSCRIPTION_ORG_ID="${org}"
-    local ak=""
-    read -r -s -p "Activation key: " ak
-    echo "" >&2
-    if [ -z "${ak}" ]; then
-        print_warn "Empty activation key — skipping virt-scanning-setup."
-        SKIP_VIRT_SCANNING=1
-        unset SUBSCRIPTION_ORG_ID SUBSCRIPTION_ACTIVATION_KEY 2>/dev/null || true
-        return 0
-    fi
-    export SUBSCRIPTION_ACTIVATION_KEY="${ak}"
-}
-
 generate_rox_api_token() {
     local central_url="${ROX_CENTRAL_ADDRESS:-}"
     local password="${ROX_PASSWORD:-}"
@@ -168,19 +131,7 @@ ensure_rox_api_token() {
     print_info "ROX_API_TOKEN generated (${#token} chars)"
 }
 
-apply_noninteractive_skips() {
-    # Subscription: need both org ID and activation key
-    if [ "${SKIP_VIRT_SCANNING:-0}" != "1" ]; then
-        if [ -z "${SUBSCRIPTION_ORG_ID:-}" ] || [ -z "${SUBSCRIPTION_ACTIVATION_KEY:-}" ]; then
-            SKIP_VIRT_SCANNING=1
-            print_info "SUBSCRIPTION_ORG_ID and SUBSCRIPTION_ACTIVATION_KEY both required — skipping virt-scanning-setup"
-        fi
-    fi
-}
-
 main() {
-    SKIP_VIRT_SCANNING="${SKIP_VIRT_SCANNING:-0}"
-
     while [ $# -gt 0 ]; do
         case "$1" in
             -p)
@@ -258,37 +209,10 @@ main() {
 
     ensure_rox_api_token || exit 1
 
-    # ---- Subscription prompt (interactive) or env (noninteractive) ----
-    if [ "${NONINTERACTIVE}" = "1" ]; then
-        apply_noninteractive_skips
-    elif [ -t 0 ] && [ -t 1 ]; then
-        if [ "${SKIP_VIRT_SCANNING:-0}" != "1" ] && [ -z "${SUBSCRIPTION_ORG_ID:-}" ]; then
-            prompt_subscription_or_skip
-        elif [ -n "${SUBSCRIPTION_ORG_ID:-}" ]; then
-            if [ -z "${SUBSCRIPTION_ACTIVATION_KEY:-}" ]; then
-                read -r -s -p "Red Hat activation key: " SUBSCRIPTION_ACTIVATION_KEY
-                echo "" >&2
-                export SUBSCRIPTION_ACTIVATION_KEY
-            fi
-            if [ -z "${SUBSCRIPTION_ACTIVATION_KEY:-}" ]; then
-                print_warn "Empty activation key — skipping virt-scanning-setup."
-                SKIP_VIRT_SCANNING=1
-                unset SUBSCRIPTION_ORG_ID SUBSCRIPTION_ACTIVATION_KEY 2>/dev/null || true
-            else
-                print_info "Using subscription organization ID from environment."
-            fi
-        fi
-    else
-        apply_noninteractive_skips
-    fi
-
-    export SKIP_VIRT_SCANNING
-
     export GRPC_ENFORCE_ALPN_ENABLED="${GRPC_ENFORCE_ALPN_ENABLED:-false}"
 
     export ROX_CENTRAL_ADDRESS ROX_PASSWORD ROX_API_TOKEN RHACS_NAMESPACE RHACS_ROUTE_NAME \
-        SUBSCRIPTION_ORG_ID SUBSCRIPTION_ACTIVATION_KEY DEPLOY_SAMPLE_VMS MCP_NAMESPACE \
-        PIPELINE_NAMESPACE
+        MCP_NAMESPACE PIPELINE_NAMESPACE
 
     echo ""
     print_step "Setup phases (logs under ${LOG_DIR})..."
@@ -339,7 +263,7 @@ main() {
         print_info "Started ${n} (pid ${pid}) → ${lg}"
     }
 
-    print_step "Phase 2: FAM, monitoring, MCP, virt-scanning, OpenShift Pipelines, custom-policies (parallel)"
+    print_step "Phase 2: FAM, monitoring, MCP, OpenShift Pipelines, custom-policies (parallel)"
     if [ "${SKIP_FAM_SETUP:-0}" != "1" ] && [ "${SKIP_FIM_SETUP:-0}" != "1" ]; then
         add_job fam-setup "${REPO_ROOT}/fam-setup/install.sh"
     fi
@@ -348,9 +272,6 @@ main() {
     fi
     if [ "${SKIP_MCP_SETUP:-0}" != "1" ]; then
         add_job mcp-server-setup "${REPO_ROOT}/mcp-server-setup/install.sh"
-    fi
-    if [ "${SKIP_VIRT_SCANNING:-0}" != "1" ]; then
-        add_job virt-scanning-setup "${REPO_ROOT}/virt-scanning-setup/install.sh"
     fi
     if [ "${SKIP_OPENSHIFT_PIPELINES_SETUP:-0}" != "1" ]; then
         add_job openshift-pipelines-setup "${REPO_ROOT}/openshift-pipelines-setup/install.sh"

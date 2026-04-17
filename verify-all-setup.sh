@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Verify cluster state for each *-setup install (basic, FAM, monitoring, MCP, virt, OpenShift Pipelines).
+# Verify cluster state for each *-setup install (basic, FAM, monitoring, MCP, OpenShift Pipelines).
 #
 # Usage:
 #   ./verify-all-setup.sh
@@ -9,10 +9,8 @@
 #
 # Skip a section (e.g. you did not run that install):
 #   VERIFY_SKIP_FAM=1 ./verify-all-setup.sh
-#   VERIFY_SKIP_VIRT=1 ./verify-all-setup.sh
 #   # or reuse install-all flags (SKIP_FAM_SETUP; legacy SKIP_FIM_SETUP still honored):
 #   SKIP_FAM_SETUP=1 ./verify-all-setup.sh
-#   SKIP_VIRT_SCANNING=1 ./verify-all-setup.sh
 #   VERIFY_SKIP_PIPELINES=1 ./verify-all-setup.sh
 #   SKIP_OPENSHIFT_PIPELINES_SETUP=1 ./verify-all-setup.sh
 #
@@ -268,25 +266,6 @@ verify_mcp() {
     return "${failed}"
 }
 
-verify_virt() {
-    print_step "virt-scanning-setup"
-    local failed=0
-
-    if ! oc get vm rhel-webserver -n default &>/dev/null; then
-        print_fail "VM rhel-webserver not found in namespace default"
-        failed=1
-    else
-        print_ok "VM rhel-webserver exists"
-        local phase
-        phase=$(oc get vm rhel-webserver -n default -o jsonpath='{.status.printableStatus}' 2>/dev/null || echo "")
-        if [ -n "${phase}" ]; then
-            print_ok "VM status: ${phase}"
-        fi
-    fi
-
-    return "${failed}"
-}
-
 verify_openshift_pipelines() {
     print_step "openshift-pipelines-setup (Tekton)"
     local failed=0
@@ -376,13 +355,6 @@ main() {
         :
     else
         verify_mcp || FAILURES=$((FAILURES + 1))
-    fi
-    echo ""
-
-    if skip_section "virt-scanning-setup" "VERIFY_SKIP_VIRT" "SKIP_VIRT_SCANNING"; then
-        :
-    else
-        verify_virt || FAILURES=$((FAILURES + 1))
     fi
     echo ""
 

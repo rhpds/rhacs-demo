@@ -47,7 +47,3 @@ node_modules
 
 # RHACS init bundles (contain sensitive TLS certificates)
 setup-files/init-bundles/
-virt-scanning/vm-config.env
-
-# VM setup script (may contain Red Hat subscription / activation key notes)
-virt-scanning-setup/backups/setup.sh
