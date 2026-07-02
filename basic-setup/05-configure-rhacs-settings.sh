@@ -46,7 +46,9 @@ trap 'error_handler $? $LINENO' ERR
 # Default values
 RHACS_NAMESPACE="${RHACS_NAMESPACE:-stackrox}"
 ROX_CENTRAL_ADDRESS="${ROX_CENTRAL_ADDRESS:-}"
-# Base image for layer filtering (Hummingbird demo; override for legacy alpine demo-apps)
+# Base images for layer filtering (Hummingbird HI + demo-apps frontend python:3.12-alpine)
+# Override all with space-separated repo|tag pairs, e.g.:
+#   RHACS_BASE_IMAGE_REFERENCES="registry.access.redhat.com/hi/python|3.13 docker.io/library/python|3.12-alpine"
 RHACS_BASE_IMAGE_REPO_PATH="${RHACS_BASE_IMAGE_REPO_PATH:-registry.access.redhat.com/hi/python}"
 RHACS_BASE_IMAGE_TAG_PATTERN="${RHACS_BASE_IMAGE_TAG_PATTERN:-3.13}"
 SKIP_RHACS_BASE_IMAGES="${SKIP_RHACS_BASE_IMAGES:-0}"
@@ -272,66 +274,9 @@ configure_base_images() {
 
     print_step "Configuring RHACS base image references..."
 
-    local existing
-    existing=$(make_api_call "GET" "baseimages" "${token}" "${api_v2_base}" "" 2>/dev/null || echo "")
-
-    local existing_id
-    existing_id=$(echo "${existing}" | jq -r --arg repo "${RHACS_BASE_IMAGE_REPO_PATH}" --arg tag "${RHACS_BASE_IMAGE_TAG_PATTERN}" '
-        .baseImageReferences[]? | select(.baseImageRepoPath == $repo and .baseImageTagPattern == $tag) | .id
-    ' 2>/dev/null | head -1)
-
-    if [ -z "${existing_id}" ] || [ "${existing_id}" = "null" ]; then
-        existing_id=$(echo "${existing}" | jq -r --arg repo "${RHACS_BASE_IMAGE_REPO_PATH}" '
-            .baseImageReferences[]? | select(.baseImageRepoPath == $repo) | .id
-        ' 2>/dev/null | head -1)
-    fi
-
-    if [ -n "${existing_id}" ] && [ "${existing_id}" != "null" ]; then
-        print_info "✓ Base image already registered: ${RHACS_BASE_IMAGE_REPO_PATH}:${RHACS_BASE_IMAGE_TAG_PATTERN} (id: ${existing_id})"
-        return 0
-    fi
-
-    local payload
-    payload=$(jq -n \
-        --arg repo "${RHACS_BASE_IMAGE_REPO_PATH}" \
-        --arg tag "${RHACS_BASE_IMAGE_TAG_PATTERN}" \
-        '{baseImageRepoPath: $repo, baseImageTagPattern: $tag}')
-
-    print_info "Creating base image reference: ${RHACS_BASE_IMAGE_REPO_PATH}:${RHACS_BASE_IMAGE_TAG_PATTERN}"
-
-    local response
-    response=$(curl -k -s -w "\n%{http_code}" \
-        -X POST \
-        -H "Authorization: Bearer ${token}" \
-        -H "Content-Type: application/json" \
-        -d "${payload}" \
-        "${api_v2_base}/baseimages" 2>&1)
-
-    local http_code
-    http_code=$(echo "${response}" | tail -n1)
-    local body
-    body=$(echo "${response}" | sed '$d')
-
-    if [ "${http_code}" -lt 200 ] || [ "${http_code}" -ge 300 ]; then
-        if echo "${body}" | grep -qiE 'duplicate key|already exists|23505'; then
-            print_info "✓ Base image already registered: ${RHACS_BASE_IMAGE_REPO_PATH}:${RHACS_BASE_IMAGE_TAG_PATTERN}"
-            return 0
-        fi
-        print_error "Failed to create base image reference (HTTP ${http_code})"
-        print_error "Response: ${body:0:300}"
-        print_error "Ensure the API token has ImageAdministration permission (Admin or Analyst role)"
-        return 1
-    fi
-
-    local created_id
-    created_id=$(echo "${body}" | jq -r '.baseImageReference.id // empty' 2>/dev/null)
-    if [ -n "${created_id}" ]; then
-        print_info "✓ Base image registered (id: ${created_id})"
-    else
-        print_info "✓ Base image registered"
-    fi
-    print_info "RHACS refreshes base image metadata from the registry every 4 hours"
-    return 0
+    # shellcheck disable=SC1090
+    source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/rhacs-base-images.sh"
+    register_rhacs_base_images "${token}" "${api_v2_base}"
 }
 
 # Function to validate configuration
@@ -444,7 +389,9 @@ main() {
     print_info "    • 7-day alert retention"
     print_info "    • 30-day runtime retention"
     print_info "    • 90-day vulnerability request retention"
-    print_info "  - Base image reference: ${RHACS_BASE_IMAGE_REPO_PATH}:${RHACS_BASE_IMAGE_TAG_PATTERN}"
+    print_info "  - Base image references:"
+    print_info "    • ${RHACS_BASE_IMAGE_REPO_PATH}:${RHACS_BASE_IMAGE_TAG_PATTERN}"
+    print_info "    • docker.io/library/python:3.12-alpine"
     print_info "  - Configuration validated successfully"
     print_info ""
 }

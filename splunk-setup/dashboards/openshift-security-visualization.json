@@ -1,6 +1,6 @@
 {
-    "title": "OpenShift Security Visualization",
-    "description": "RHACS compliance overview (stackrox-compliance). Import via Splunk Dashboard Studio.",
+    "title": "RHACS Security Operations Dashboard",
+    "description": "This Splunk dashboard provides a comprehensive, real-time view into your Red Hat Advanced Cluster Security (RHACS) environment. It aggregates and visualizes key security telemetry from RHACS to help security teams, platform owners, and leadership maintain strong Kubernetes/container security posture.",
     "inputs": {
         "input_global_trp": {
             "options": {
@@ -37,52 +37,103 @@
         }
     },
     "visualizations": {
-        "viz_8W92STWp": {
+        "viz_V80AQZyf": {
             "containerOptions": {
-                "visibility": {}
+                "description": {
+                    "color": "#f8be34"
+                },
+                "visibility": {
+                    "hideWhenNoData": true
+                }
             },
+            "cornerRadius": [
+                14,
+                14,
+                14,
+                14
+            ],
             "dataSources": {
-                "primary": "ds_Vrf7Agls"
+                "primary": "ds_TllssnKh"
             },
             "options": {
                 "collapseExcludeZero": true,
-                "collapseThreshold": 0,
-                "label": "> primary | seriesByName('Status')",
+                "collapseThreshold": 0.05,
+                "label": "> primary | seriesByName('state')",
                 "labelDisplay": "valuesAndPercentage",
                 "seriesColors": [
-                    "#009CEB",
-                    "#4CBB17",
                     "#EE0000",
-                    "#DD9900",
-                    "#FF677B",
-                    "#CB2196",
-                    "#813193",
-                    "#0051B5",
-                    "#008C80",
-                    "#99B100",
-                    "#FFA476",
-                    "#FF6ACE",
-                    "#AE8CFF",
-                    "#00689D",
-                    "#00490A",
-                    "#465D00",
-                    "#9D6300",
-                    "#F6540B",
-                    "#FF969E",
-                    "#E47BFE"
+                    "#57a2db",
+                    "#53a051"
                 ],
+                "showDonutHole": true,
                 "value": "> primary | seriesByName('count')"
             },
-            "title": "RHACS Compliance Posture",
+            "title": "Compliance Status Breakdown",
+            "type": "splunk.pie"
+        },
+        "viz_wazlMoHO": {
+            "dataSources": {
+                "primary": "ds_2sULJDnT"
+            },
+            "options": {
+                "legendDisplay": "top",
+                "seriesColors": [
+                    "#53a051",
+                    "#dc4e41",
+                    "#0877a6"
+                ],
+                "xAxisLabelVisibility": "show",
+                "xAxisTitleText": "Compliance Standard"
+            },
+            "title": "Compliance Pass/Fail by Standard",
+            "type": "splunk.column"
+        },
+        "viz_zOw8rbcw": {
+            "containerOptions": {
+                "description": {
+                    "color": "#f8be34"
+                },
+                "visibility": {}
+            },
+            "cornerRadius": [
+                14,
+                14,
+                14,
+                14
+            ],
+            "dataSources": {
+                "primary": "ds_mSX1nJCp"
+            },
+            "options": {
+                "collapseExcludeZero": true,
+                "collapseThreshold": 0.05,
+                "label": "> primary | seriesByName('Severity')",
+                "labelDisplay": "valuesAndPercentage",
+                "seriesColors": [
+                    "#EE0000",
+                    "#f8be34",
+                    "#0877a6",
+                    "#62b3b2"
+                ],
+                "showDonutHole": true,
+                "value": "> primary | seriesByName('count')"
+            },
+            "title": "Vulnerabilities by Severity (CVSS)",
             "type": "splunk.pie"
         }
     },
     "dataSources": {
-        "ds_Vrf7Agls": {
-            "name": "Compliance Breakdown",
+        "ds_2sULJDnT": {
+            "name": "Compliance by Standard",
             "options": {
-                "enableSmartSources": true,
-                "query": "sourcetype=stackrox-compliance\n| stats latest(compliance_status) as compliance_status by compliance_check_name\n| eval Status = case(\n    compliance_status=\"Pass\", \"✅ Pass\",\n    compliance_status=\"Fail\", \"❌ Fail\",\n    compliance_status=\"Error\", \"⚠️ Error\",\n    compliance_status=\"Inconsistent\", \"❗ Inconsistent\",\n    compliance_status=\"Info\", \"ℹ️ Info\",\n    compliance_status=\"Manual\", \"🔧 Manual\",\n    compliance_status=\"Not Applicable\", \"➖ Not Applicable\",\n    true(), compliance_status\n)\n| stats count by Status",
+                "query": "index=* sourcetype=\"stackrox-*\" state=* standard=*\n| stats \n  count(eval(state=\"Pass\")) as Pass,\n  count(eval(state=\"Fail\")) as Fail,\n  count(eval(state=\"Info\")) as Info\n  by standard\n| eval Total = Pass + Fail + Info\n| eval Pass_Percent = round(Pass * 100 / Total, 1)\n| eval Fail_Percent = round(Fail * 100 / Total, 1)\n| eval Info_Percent = round(Info * 100 / Total, 1)\n| fields standard, Pass_Percent, Fail_Percent, Info_Percent\n| sort - Pass_Percent"
+            },
+            "type": "ds.search"
+        },
+        "ds_TllssnKh": {
+            "name": "compliance-pass-fail",
+            "options": {
+                "query": "index=* sourcetype=\"stackrox-*\" state=*\n| stats count by state\n| eval state = case(\n    state==\"Pass\", \"Pass\",\n    state==\"Fail\", \"Fail\",\n    state==\"Info\", \"Info\",\n    true(), \"Other\"\n)",
                 "queryParameters": {
                     "earliest": "$global_time.earliest$",
                     "latest": "$global_time.latest$"
@@ -90,14 +141,29 @@
             },
             "type": "ds.search"
         },
-        "ds_qYzKpPa1": {
-            "name": "Compliance Status",
+        "ds_YaVYReR4": {
+            "name": "Search_1",
             "options": {
-                "query": "sourcetype=stackrox-compliance \n| table _time, host, compliance_check_name, compliance_status, description, severity, details\n| sort compliance_status, -_time\n| eval Status_Color = case(\n    compliance_status=\"Pass\", \"green\",\n    compliance_status=\"Fail\", \"red\",\n    compliance_status=\"Error\", \"red\",\n    compliance_status=\"Inconsistent\", \"red\",\n    compliance_status=\"Info\", \"blue\",\n    compliance_status=\"Manual\", \"yellow\",\n    compliance_status=\"Not Applicable\", \"gray\",\n    true(), \"default\"\n)",
+                "enableSmartSources": true,
+                "query": "index=* sourcetype=\"stackrox-*\" state=*\n| stats \n  count(eval(state=\"Pass\")) as Pass \n  count(eval(state=\"Fail\")) as Fail \n  count(eval(state=\"Info\")) as Info\n| eval Total = Pass + Fail + Info\n| eval Compliance_Rate = round(Pass * 100 / Total, 1)\n| fields Compliance_Rate, Pass, Fail, Info, Total",
                 "queryParameters": {
                     "earliest": "$global_time.earliest$",
                     "latest": "$global_time.latest$"
                 }
+            },
+            "type": "ds.search"
+        },
+        "ds_mSX1nJCp": {
+            "name": "Search_2",
+            "options": {
+                "query": "index=* sourcetype=\"stackrox-*\" cve=* cvss=*\n| stats dc(cve) as \"Unique CVEs\" by cvss\n| eval Severity = case(\n  cvss >= 9.0, \"Critical\",\n  cvss >= 7.0, \"High\",\n  cvss >= 4.0, \"Medium\",\n  true(), \"Low\"\n)\n| stats sum(\"Unique CVEs\") as count by Severity"
+            },
+            "type": "ds.search"
+        },
+        "ds_tvHKBNxI": {
+            "name": "Vulnerabilities Discovered Over Time",
+            "options": {
+                "query": "index=* sourcetype=\"stackrox-*\" cve=* cvss=*\n| bin _time span=6h\n| eval Severity = case(\n  cvss >= 9.0, \"Critical\",\n  cvss >= 7.0, \"High\",\n  cvss >= 4.0, \"Medium\",\n  true(), \"Low\"\n)\n| stats dc(cve) as count by _time, Severity"
             },
             "type": "ds.search"
         }
@@ -109,38 +175,52 @@
         "layoutDefinitions": {
             "layout_1": {
                 "options": {
-                    "backgroundColor": "#EE0000",
                     "height": 960,
                     "width": 1440
                 },
                 "structure": [
                     {
-                        "item": "viz_8W92STWp",
+                        "item": "viz_V80AQZyf",
                         "position": {
-                            "h": 400,
-                            "w": 1440,
+                            "h": 360,
+                            "w": 550,
                             "x": 0,
                             "y": 0
                         },
                         "type": "block"
+                    },
+                    {
+                        "item": "viz_wazlMoHO",
+                        "position": {
+                            "h": 360,
+                            "w": 890,
+                            "x": 550,
+                            "y": 0
+                        },
+                        "type": "block"
+                    },
+                    {
+                        "item": "viz_zOw8rbcw",
+                        "position": {
+                            "h": 360,
+                            "w": 550,
+                            "x": 0,
+                            "y": 360
+                        },
+                        "type": "block"
                     }
                 ],
-                "type": "grid"
+                "type": "absolute"
             }
         },
         "options": {},
         "tabs": {
             "items": [
                 {
-                    "label": "Compliance",
+                    "label": "Main Tab",
                     "layoutId": "layout_1"
                 }
             ]
         }
-    },
-    "applicationProperties": {
-        "collapseNavigation": false,
-        "hideEdit": false,
-        "hideExport": false
     }
 }

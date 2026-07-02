@@ -49,6 +49,11 @@
 #   ROX_CENTRAL_ADDRESS     RHACS Central URL (required for integration)
 #   ROX_API_TOKEN           Preferred for RHACS API + Splunk TA-stackrox api_token (env or ~/.bashrc via loader below)
 #   ROX_PASSWORD            RHACS admin password (used to generate API token if needed)
+#   SPLUNK_DEPLOY_RHACS_DASHBOARD  Import RHACS dashboard JSON via REST (default: true)
+#   SPLUNK_RHACS_DASHBOARD_FILE    Dashboard Studio JSON path (default: ./dashboards/openshift-security-visualization.json)
+#   SPLUNK_RHACS_DASHBOARD_ID      Splunk view name / URL id (default: rhacs_security_operations)
+#   SPLUNK_RHACS_DASHBOARD_APP     Splunk app context (default: search)
+#   SPLUNK_RHACS_DASHBOARD_HOME    Set as Splunk home dashboard for admin + new users (default: true)
 #
 
 set -euo pipefail
@@ -975,6 +980,120 @@ print_rhacs_addon_configuration_steps() {
     print_info "Verification search: index=* sourcetype=\"stackrox-*\""
 }
 
+deploy_rhacs_splunk_dashboard() {
+    local namespace="$1"
+    local name="$2"
+    local splunk_password="$3"
+
+    if [ "${SPLUNK_DEPLOY_RHACS_DASHBOARD:-true}" != "true" ]; then
+        print_info "Skipping RHACS dashboard deploy (SPLUNK_DEPLOY_RHACS_DASHBOARD=false)"
+        return 0
+    fi
+
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local dashboard_json="${SPLUNK_RHACS_DASHBOARD_FILE:-${script_dir}/dashboards/openshift-security-visualization.json}"
+    local dashboard_id="${SPLUNK_RHACS_DASHBOARD_ID:-rhacs_security_operations}"
+    local dashboard_app="${SPLUNK_RHACS_DASHBOARD_APP:-search}"
+    local build_py="${script_dir}/lib/build-dashboard-xml.py"
+    local pod_xml="/tmp/${dashboard_id}.xml"
+
+    if [ ! -f "${dashboard_json}" ]; then
+        print_warn "RHACS dashboard JSON not found (${dashboard_json}); skipping dashboard deploy."
+        return 0
+    fi
+    if [ ! -f "${build_py}" ]; then
+        print_warn "Dashboard XML builder not found (${build_py}); skipping dashboard deploy."
+        return 0
+    fi
+
+    local pod
+    pod="$(oc -n "${namespace}" get pods -l "app=${name}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+    if [ -z "${pod}" ]; then
+        print_warn "No Splunk pod found; skipping RHACS dashboard deploy."
+        return 0
+    fi
+
+    print_step "Deploying RHACS Security Operations dashboard (${dashboard_id}) to Splunk app '${dashboard_app}'"
+
+    local tmp_xml
+    tmp_xml="$(mktemp)"
+    if ! python3 "${build_py}" "${dashboard_json}" -o "${tmp_xml}"; then
+        rm -f "${tmp_xml}"
+        print_error "Failed to build dashboard XML from ${dashboard_json}"
+        return 1
+    fi
+
+    splunk_oc_exec "${namespace}" "${pod}" rm -f "${pod_xml}" >/dev/null 2>&1 || true
+    oc -n "${namespace}" cp "${tmp_xml}" "${pod}:${pod_xml}"
+    rm -f "${tmp_xml}"
+
+    local auth_u="admin:${splunk_password}"
+    local views_base="https://127.0.0.1:8089/servicesNS/nobody/${dashboard_app}/data/ui/views"
+    local view_url="${views_base}/${dashboard_id}"
+    local dashboard_uri="/servicesNS/nobody/${dashboard_app}/data/ui/views/${dashboard_id}"
+    local exists_code deploy_code acl_code prefs_code admin_prefs_code
+
+    exists_code="$(run_splunk_curl "${namespace}" "${pod}" -k -sS -o /dev/null -w '%{http_code}' \
+        -u "${auth_u}" "${view_url}?output_mode=json" 2>/dev/null || true)"
+
+    if [ "${exists_code}" = "200" ]; then
+        print_info "Updating existing dashboard '${dashboard_id}'."
+        deploy_code="$(run_splunk_curl "${namespace}" "${pod}" -k -sS -o /tmp/splunk-dashboard-deploy.out -w '%{http_code}' \
+            -u "${auth_u}" -X POST \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data-urlencode "eai:data@${pod_xml}" \
+            "${view_url}" 2>/dev/null || true)"
+    else
+        print_info "Creating dashboard '${dashboard_id}'."
+        deploy_code="$(run_splunk_curl "${namespace}" "${pod}" -k -sS -o /tmp/splunk-dashboard-deploy.out -w '%{http_code}' \
+            -u "${auth_u}" -X POST \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data-urlencode "name=${dashboard_id}" \
+            --data-urlencode "eai:data@${pod_xml}" \
+            "${views_base}" 2>/dev/null || true)"
+    fi
+
+    if [ "${deploy_code}" != "200" ] && [ "${deploy_code}" != "201" ]; then
+        print_warn "Dashboard REST deploy returned HTTP ${deploy_code:-unknown} (expected 200/201)."
+        splunk_oc_exec "${namespace}" "${pod}" tail -n 20 /tmp/splunk-dashboard-deploy.out 2>/dev/null || true
+        return 0
+    fi
+
+    acl_code="$(run_splunk_curl "${namespace}" "${pod}" -k -sS -o /dev/null -w '%{http_code}' \
+        -u "${auth_u}" -X POST \
+        -H 'Content-Type: application/x-www-form-urlencoded' \
+        --data-urlencode 'owner=nobody' \
+        --data-urlencode 'sharing=global' \
+        --data-urlencode 'perms.read=*' \
+        "${view_url}/acl" 2>/dev/null || true)"
+    if [ "${acl_code}" != "200" ]; then
+        print_warn "Dashboard ACL update returned HTTP ${acl_code:-unknown} (dashboard may still be visible to admin)."
+    fi
+
+    if [ "${SPLUNK_RHACS_DASHBOARD_HOME:-true}" = "true" ]; then
+        prefs_code="$(run_splunk_curl "${namespace}" "${pod}" -k -sS -o /dev/null -w '%{http_code}' \
+            -u "${auth_u}" -X POST \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data-urlencode "display.page.home.dashboardId=${dashboard_uri}" \
+            "https://127.0.0.1:8089/servicesNS/nobody/user-prefs/configs/conf-user-prefs/general" 2>/dev/null || true)"
+        admin_prefs_code="$(run_splunk_curl "${namespace}" "${pod}" -k -sS -o /dev/null -w '%{http_code}' \
+            -u "${auth_u}" -X POST \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data-urlencode "display.page.home.dashboardId=${dashboard_uri}" \
+            "https://127.0.0.1:8089/servicesNS/admin/user-prefs/configs/conf-user-prefs/general" 2>/dev/null || true)"
+        if [ "${prefs_code}" = "200" ] && [ "${admin_prefs_code}" = "200" ]; then
+            print_info "Set '${dashboard_id}' as Splunk home dashboard (admin + default for new users)."
+        else
+            print_warn "Home dashboard prefs returned HTTP global=${prefs_code:-unknown} admin=${admin_prefs_code:-unknown}."
+            print_warn "Open Splunk → Home → Choose a home dashboard → RHACS Security Operations Dashboard."
+        fi
+    fi
+
+    splunk_oc_exec "${namespace}" "${pod}" rm -f "${pod_xml}" >/dev/null 2>&1 || true
+    print_info "RHACS dashboard deployed: Dashboards → RHACS Security Operations Dashboard (id: ${dashboard_id})."
+}
+
 print_final_details() {
     local namespace="$1"
     local name="$2"
@@ -1004,9 +1123,20 @@ print_final_details() {
     print_info "Verify data (after inputs run):"
     print_info "  index=* sourcetype=\"stackrox-*\""
     print_info ""
-    print_info "Dashboard Studio (optional):"
-    print_info "  Export JSON: ${script_dir}/dashboards/openshift-security-visualization.json"
-    print_info "  Splunk Web → Dashboards → Create → Dashboard Studio → … → Import (or paste definition)."
+    local dashboard_id="${SPLUNK_RHACS_DASHBOARD_ID:-rhacs_security_operations}"
+    print_info "RHACS Security Operations dashboard:"
+    if [ "${SPLUNK_DEPLOY_RHACS_DASHBOARD:-true}" = "true" ]; then
+        print_info "  Auto-deployed from: ${script_dir}/dashboards/openshift-security-visualization.json"
+        print_info "  Splunk Web → Dashboards → RHACS Security Operations Dashboard"
+        print_info "  Direct URL path: /app/search/dashboard/${dashboard_id}"
+        if [ "${SPLUNK_RHACS_DASHBOARD_HOME:-true}" = "true" ]; then
+            print_info "  Set as home dashboard for admin (opens after login)."
+        fi
+        print_info "  Tip: set Global Time Range to Last 1 hour for live demos (default in JSON: Last 24 hours)."
+    else
+        print_info "  Auto-deploy skipped (SPLUNK_DEPLOY_RHACS_DASHBOARD=false)."
+        print_info "  Manual import: ${script_dir}/README.md"
+    fi
     print_info ""
     print_info "Cleanup:"
     print_info "  ./clean.sh"
@@ -1405,6 +1535,7 @@ EOF
     configure_rhacs_addon_settings "${namespace}" "${name}" "${password}"
     configure_rhacs_addon_inputs "${namespace}" "${name}" "${password}"
     integrate_rhacs_with_splunk "${namespace}" "${name}" "${password}"
+    deploy_rhacs_splunk_dashboard "${namespace}" "${name}" "${password}"
     print_rhacs_addon_configuration_steps
     print_final_details "${namespace}" "${name}" "${route_host}" "${password}"
 }

@@ -214,6 +214,12 @@ verify_hummingbird() {
                 print_warn "Hummingbird base image not found in /v2/baseimages"
                 WARNINGS=$((WARNINGS + 1))
             fi
+            if echo "${hi_base}" | jq -e '.baseImageReferences[]? | select(.baseImageRepoPath | test("library/python")) | select(.baseImageTagPattern == "3.12-alpine")' >/dev/null 2>&1; then
+                print_ok "python:3.12-alpine base image registered in RHACS"
+            else
+                print_warn "docker.io/library/python:3.12-alpine not found in /v2/baseimages"
+                WARNINGS=$((WARNINGS + 1))
+            fi
         fi
     fi
 

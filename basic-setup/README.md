@@ -179,7 +179,7 @@ Label-scoped policies and scheduled vulnerability reports are configured manuall
 ### Hummingbird Hardened Images (Script 09)
 - Workloads deploy via script 04 from `demo-applications` (`hummingbird-demo` namespace)
 - Layered image: `quay.io/mfoster/hi-python-demo:0.1.0` (build/push from demo-applications makefile)
-- Script 09 registers `registry.access.redhat.com/hi/python` as RHACS base image
+- Script 09 registers RHACS base images (`hi/python:3.13`, `python:3.12-alpine`)
 
 ### Custom TLS Configuration (Optional, not included in install.sh)
 This optional script configures Central with a custom TLS certificate and passthrough routing:
