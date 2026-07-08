@@ -576,29 +576,98 @@ main() {
         print_info ""
     fi
     
-    # Run setup scripts in order
+    # Run setup scripts in order (04b parallel batch: hummingbird deploy + 05–08, then 09)
     print_info "Running setup scripts..."
     print_info "========================="
-    
-    local script_num=1
-    local script_pattern=""
-    
 
-    # Find and run scripts in numerical order (01-*.sh, 02-*.sh, etc.)
-    for script in "${SETUP_DIR}"/[0-9][0-9]-*.sh; do
-        if [ -f "${script}" ]; then
-            local script_name=$(basename "${script}")
-            
-            print_info "Executing: ${script_name}"
-            if bash "${script}"; then
-                print_info "✓ Successfully completed: ${script_name}"
-            else
-                print_error "✗ Failed: ${script_name}"
-                print_info "To rerun: bash \"${script}\""
-                exit 1
-            fi
-            print_info ""
+    run_setup_script() {
+        local script_path="$1"
+        local script_name
+        script_name=$(basename "${script_path}")
+
+        print_info "Executing: ${script_name}"
+        if bash "${script_path}"; then
+            print_info "✓ Successfully completed: ${script_name}"
+            return 0
         fi
+        print_error "✗ Failed: ${script_name}"
+        print_info "To rerun: bash \"${script_path}\""
+        return 1
+    }
+
+    run_parallel_setup_scripts() {
+        local -a job_names=()
+        local -a job_pids=()
+        local -a job_scripts=()
+        local failed=0
+        local script_path name pid ec
+
+        add_parallel_job() {
+            local script="$1"
+            name=$(basename "${script}")
+            bash "${script}" &
+            pid=$!
+            job_names+=("${name}")
+            job_pids+=("${pid}")
+            job_scripts+=("${script}")
+            print_info "Started ${name} (pid ${pid})"
+        }
+
+        for script_path in "$@"; do
+            add_parallel_job "${script_path}"
+        done
+
+        if [ ${#job_pids[@]} -eq 0 ]; then
+            return 0
+        fi
+
+        print_info ""
+        print_step "Waiting for ${#job_pids[@]} parallel script(s)..."
+        print_info ""
+
+        local i
+        for i in "${!job_pids[@]}"; do
+            pid="${job_pids[$i]}"
+            ec=0
+            wait "${pid}" || ec=$?
+            if [ "${ec}" -eq 0 ]; then
+                print_info "✓ ${job_names[$i]} finished"
+            else
+                failed=1
+                print_error "✗ ${job_names[$i]} failed (exit ${ec})"
+                print_info "To rerun: bash \"${job_scripts[$i]}\""
+            fi
+        done
+
+        [ "${failed}" -eq 0 ]
+    }
+
+    local script_path
+    for script_path in "${SETUP_DIR}"/0[1-4]-*.sh; do
+        [ -f "${script_path}" ] || continue
+        run_setup_script "${script_path}" || exit 1
+        print_info ""
+    done
+
+    local -a parallel_scripts=()
+    if [ "${SKIP_HUMMINGBIRD_DEMO:-0}" != "1" ]; then
+        parallel_scripts+=("${SETUP_DIR}/deploy-hummingbird-applications.sh")
+    fi
+    for script_path in "${SETUP_DIR}"/0[5-8]-*.sh; do
+        [ -f "${script_path}" ] || continue
+        parallel_scripts+=("${script_path}")
+    done
+
+    if [ ${#parallel_scripts[@]} -gt 0 ]; then
+        print_step "Running Hummingbird deploy and RHACS configuration scripts in parallel..."
+        run_parallel_setup_scripts "${parallel_scripts[@]}" || exit 1
+        print_info ""
+    fi
+
+    for script_path in "${SETUP_DIR}"/09-*.sh; do
+        [ -f "${script_path}" ] || continue
+        run_setup_script "${script_path}" || exit 1
+        print_info ""
     done
     
     print_info ""
@@ -618,6 +687,7 @@ main() {
     print_info "  ✓ Collector network CIDRs configured"
     print_info "  ✓ Compliance Operator installed"
     print_info "  ✓ Demo applications deployed"
+    print_info "  ✓ Hummingbird hardened image workloads deployed (parallel with scripts 05–08)"
     print_info "  ✓ RHACS settings configured"
     print_info "  ✓ Compliance scan schedules created"
     print_info "  ✓ RHACS 4.11 features configured (script 08)"

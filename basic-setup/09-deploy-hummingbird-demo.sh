@@ -1,7 +1,7 @@
 #!/bin/bash
 # Register Hummingbird base image in RHACS and verify demo workloads from demo-applications.
 #
-# Workloads deploy with script 04 (k8s-deployment-manifests/hummingbird-demo).
+# Workloads deploy via deploy-hummingbird-applications.sh (parallel with scripts 05–08).
 # Layered image: quay.io/mfoster/hi-python-demo:0.1.0 (build via demo-applications makefile).
 #
 # Requires: ROX_API_TOKEN, oc logged in
@@ -70,7 +70,7 @@ main() {
     fi
 
     if ! oc get namespace "${HUMMINGBIRD_NAMESPACE}" &>/dev/null; then
-        print_warn "Namespace ${HUMMINGBIRD_NAMESPACE} not found — run basic-setup/04-deploy-applications.sh first"
+        print_warn "Namespace ${HUMMINGBIRD_NAMESPACE} not found — run basic-setup/deploy-hummingbird-applications.sh first"
     else
         wait_for_hummingbird_deployments
     fi

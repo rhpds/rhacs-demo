@@ -120,7 +120,8 @@ The following scripts are executed in numerical order:
 | `01-verify-rhacs-install.sh` | Verifies RHACS installation, ensures TLS encryption, upgrades to newest catalog version (or `RHACS_VERSION` pin), then ensures Console plugin is enabled | No | ✓ |
 | `02-configure-collector-networks.sh` | Sets `ROX_NON_AGGREGATED_NETWORKS` on the Collector via SecuredCluster overlay for non-RFC1918 pod/service CIDRs | No | ✓ |
 | `03-compliance-operator-install.sh` | Installs Red Hat Compliance Operator for compliance scanning | No | ✓ |
-| `04-deploy-applications.sh` | Deploys demo applications from demo-applications repo (includes hummingbird-demo) | No | ✓ |
+| `04-deploy-applications.sh` | Deploys demo applications from demo-applications repo (excludes hummingbird-demo) | No | ✓ |
+| `deploy-hummingbird-applications.sh` | Deploys Hummingbird HI demo workloads (runs in parallel with scripts 05–08) | No | ✓ |
 | `05-configure-rhacs-settings.sh` | Configures RHACS via API (metrics, retention, platform components) | **Yes** | ✓ |
 | `06-setup-co-scan-schedule.sh` | Creates automated compliance scan schedules (includes TailoredProfiles when present) | **Yes** | ✓ |
 | `07-trigger-compliance-scan.sh` | Triggers immediate compliance scans (optional) | **Yes** | ✓ |
@@ -176,8 +177,8 @@ oc get securedcluster -n stackrox -o yaml | grep -A10 'overlays:'
 
 Label-scoped policies and scheduled vulnerability reports are configured manually in the RHACS UI when needed for a demo.
 
-### Hummingbird Hardened Images (Script 09)
-- Workloads deploy via script 04 from `demo-applications` (`hummingbird-demo` namespace)
+### Hummingbird Hardened Images (deploy + script 09)
+- Workloads deploy via `deploy-hummingbird-applications.sh` (parallel with scripts 05–08) from `demo-applications` (`hummingbird-demo` namespace)
 - Layered image: `quay.io/mfoster/hi-python-demo:0.1.0` (build/push from demo-applications makefile)
 - Script 09 registers RHACS base images (`hi/python:3.13`, `python:3.12-alpine`)
 

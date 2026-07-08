@@ -6,9 +6,48 @@ HUMMINGBIRD_NAMESPACE="${HUMMINGBIRD_NAMESPACE:-hummingbird-demo}"
 HI_BASE_IMAGE="${HI_BASE_IMAGE:-registry.access.redhat.com/hi/python:3.13}"
 HI_LAYERED_IMAGE="${HI_LAYERED_IMAGE:-quay.io/mfoster/hi-python-demo:0.1.0}"
 
+resolve_demo_apps_dir() {
+    local project_root="${1:-}"
+    if [ -n "${DEMO_APPS_DIR:-}" ]; then
+        echo "${DEMO_APPS_DIR}"
+        return 0
+    fi
+    if [ -n "${project_root}" ] && [ -d "${project_root}/../demo-applications/k8s-deployment-manifests" ]; then
+        echo "${project_root}/../demo-applications"
+        return 0
+    fi
+    echo "${HOME}/demo-applications"
+}
+
 hummingbird_manifests_dir() {
-    local demo_apps_dir="${1:-${DEMO_APPS_DIR:-${HOME}/demo-applications}}"
+    local demo_apps_dir="${1:-$(resolve_demo_apps_dir)}"
     echo "${demo_apps_dir}/k8s-deployment-manifests/hummingbird-demo"
+}
+
+is_hummingbird_deployed() {
+    oc get namespace "${HUMMINGBIRD_NAMESPACE}" &>/dev/null
+}
+
+deploy_hummingbird_applications() {
+    local demo_apps_dir="${1:-$(resolve_demo_apps_dir)}"
+    local manifests_dir
+    manifests_dir="$(hummingbird_manifests_dir "${demo_apps_dir}")"
+
+    if [ ! -d "${manifests_dir}" ]; then
+        print_error "Hummingbird manifests not found at: ${manifests_dir}"
+        return 1
+    fi
+
+    print_step "Deploying Hummingbird demo workloads..."
+    if oc apply -f "${manifests_dir}/" --recursive; then
+        print_info "✓ Hummingbird applications applied"
+    else
+        print_error "Failed to apply Hummingbird manifests"
+        return 1
+    fi
+
+    wait_for_hummingbird_deployments
+    return 0
 }
 
 wait_for_hummingbird_deployments() {

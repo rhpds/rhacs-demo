@@ -24,7 +24,7 @@ All requirements are configured by the *basic-setup* script and the parallel set
 === Set up scripts
 
 .Procedure
-. Copy and paste the following command into your terminal:
+. Run the following command into your terminal:
 +
 [source,sh,subs="attributes",role=execute]
 ----

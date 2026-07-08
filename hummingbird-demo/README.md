@@ -9,11 +9,12 @@ Canonical source lives in **[demo-applications](https://github.com/mfosterrox/de
 
 ## Deploy
 
-Hummingbird deploys with the rest of the demo applications (script 04):
+Hummingbird deploys separately from the other demo applications, in parallel with RHACS configuration (scripts 05–08):
 
 ```bash
 bash basic-setup/04-deploy-applications.sh
-bash basic-setup/09-deploy-hummingbird-demo.sh   # RHACS base image registration + UI guidance
+bash basic-setup/deploy-hummingbird-applications.sh   # or via install.sh parallel batch
+bash basic-setup/09-deploy-hummingbird-demo.sh          # RHACS base image registration + UI guidance
 ```
 
 Build and push the layered image from demo-applications (same as other demo apps):

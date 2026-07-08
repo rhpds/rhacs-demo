@@ -85,7 +85,7 @@ setup_demo_apps_repo() {
 # Function to check if applications are already deployed
 are_apps_deployed() {
     # Check for some common deployments from the demo-applications repo
-    local namespaces=("frontend" "backend" "payments" "ctf-web-to-system" "hummingbird-demo")
+    local namespaces=("frontend" "backend" "payments" "ctf-web-to-system")
     local deployed_count=0
     
     for ns in "${namespaces[@]}"; do
@@ -110,14 +110,24 @@ deploy_applications() {
         return 1
     fi
     
-    print_info "Applying k8s-deployment-manifests..."
+    print_info "Applying k8s-deployment-manifests (excluding hummingbird-demo; see deploy-hummingbird-applications.sh)..."
     local failed=false
-    
-    # Apply with continue on error to deploy as many as possible
-    if ! oc apply -f "${DEMO_APPS_DIR}/k8s-deployment-manifests/" --recursive 2>&1 | tee /tmp/deploy-output.log; then
-        print_warn "Some resources may have failed to apply"
-        failed=true
-    fi
+    local manifests_root="${DEMO_APPS_DIR}/k8s-deployment-manifests"
+    local item base
+
+    : > /tmp/deploy-output.log
+    for item in "${manifests_root}"/*; do
+        [ -e "${item}" ] || continue
+        base="$(basename "${item}")"
+        if [ "${base}" = "hummingbird-demo" ]; then
+            print_info "Skipping ${base}/ (deployed separately in parallel)"
+            continue
+        fi
+        if ! oc apply -f "${item}" --recursive 2>&1 | tee -a /tmp/deploy-output.log; then
+            print_warn "Some resources may have failed to apply for ${base}"
+            failed=true
+        fi
+    done
     
     # Check output for actual errors vs warnings
     if grep -qi "error" /tmp/deploy-output.log && ! grep -qi "created\|configured\|unchanged" /tmp/deploy-output.log; then

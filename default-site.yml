@@ -1,0 +1,30 @@
+---
+site:
+  title: Advanced Cluster Security Demo
+  url: https://github.com/rhpds/showroom_template_nookbag
+  start_page: modules::index.adoc
+
+content:
+  sources:
+    - url: .
+      start_path: content
+      branches: [HEAD]
+
+ui:
+  bundle:
+    url: https://github.com/rhpds/rhdp_showroom_theme/releases/download/latest/ui-bundle.zip
+    snapshot: true
+  supplemental_files:
+    - path: ./content/supplemental-ui
+    - path: ./content/lib
+
+runtime:
+  cache_dir: ./.cache/antora
+
+antora:
+  extensions:
+    - require: ./content/lib/dev-mode.js
+      enabled: true
+
+output:
+  dir: ./www
