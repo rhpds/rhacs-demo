@@ -1,6 +1,8 @@
 = Module 01: UI overview and OpenShift console plugins
 :source-highlighter: rouge
 
+include::partial$_attributes.adoc[]
+
 This module introduces the Red Hat Advanced Cluster Security {rhacs_version} console. Presenters walk through the PatternFly-updated dashboard, navigation, global search, and the OpenShift console security plugin to establish the full scope of the platform before diving into individual use cases.
 
 == Part 1: Dashboard and top bar

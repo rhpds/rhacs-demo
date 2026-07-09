@@ -1,0 +1,38 @@
+RHACS delivers Kubernetes-native security across the full application lifecycle — from image vulnerability scanning and runtime threat detection to compliance and policy enforcement. This demo environment is built specifically for field and technical teams. It runs on a pre-configured OpenShift cluster and includes a six-module presenter guide with realistic workloads and scenarios to help you walk customers through RHACS.
+
+== Demo Guide
+
+The demo script lives in the Showroom instance left panel after a successful installation. Review for a complete walkthrough of RHACS on a pre-configured OpenShift cluster.
+
+You can preview the guide at link:https://rhpds.github.io/rhacs-demo/modules/index.html[rhacs-demo on GitHub Pages^].
+
+== Featured Technology and Products
+
+* Red Hat Advanced Cluster Security 4.11
+* Red Hat OpenShift Container Platform 4.20
+* OpenShift Pipelines 1.21
+* OpenShift Compliance Operator 1.9
+* Red Hat OpenShift Cluster Observability Operator 1.5 (Perses dashboards)
+* Splunk Enterprise
+
+== Detailed Overview
+
+The presenter guide includes six modules:
+
+* *Module 01: UI overview* — RHACS console, global search, OpenShift security plugin, and Perses metrics dashboards
+* *Module 02: Vulnerability management and risk* — CVE scanning across workloads, nodes, and VMs; image triage; risk ranking; runtime process discovery
+* *Module 03: Compliance* — PCI-DSS, HIPAA, CIS, NIST, and STIG scanning with evidence export and scheduled scans
+* *Module 04: Violations and policy* — Lifecycle violations, built-in policies, unified enforcement, and admission control
+* *Module 05: Network graph* — Traffic visualization, anomalous flow detection, and NetworkPolicy generation
+* *Module 06: Integrations* — Registries, SIEM/notifications (including Splunk), supply chain signing, and SSO
+
+== Support
+
+For help with instructions or functionality, contact lab authors:
+
+* Contact Michael Foster on Slack: link:https://redhat.enterprise.slack.com/team/U01PMH71ACU[Slack Profile^]
+
+For problems with provisioning or environment stability:
+
+* Open an RHDP link:https://red.ht/rhdp-ticket[Support Ticket^]
+* Post a message in Slack channel: link:https://redhat.enterprise.slack.com/archives/C06QWD4A5TE[#forum-demo-redhat-com^]

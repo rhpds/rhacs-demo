@@ -13,10 +13,12 @@ This module covers how RHACS {rhacs_version} records policy violations across th
 
 _Context: A violation in RHACS is a record of a specific moment when a policy criterion was met by an object in your cluster -- an image, a deployment configuration, or a runtime process. The goal is not to produce a to-do list. It is to give security and platform teams an accurate record of what happened, when, and what to do about it._
 
-**Two categories of violations:**
+**Four lifecycle stages for violations:**
 
-* *Build and deploy time* -- policy criteria evaluated against image content or deployment configuration before or at the point of deployment. These violations capture misconfiguration before it reaches production.
-* *Runtime* -- policy criteria triggered by observed process activity, network connections, or system calls inside a running container. These violations capture attacker behavior or policy drift that occurred after deployment.
+* *Build time* -- policy criteria evaluated in CI/CD via `roxctl image check` or `roxctl deployment check`. When enforcement is enabled, the pipeline fails with remediation guidance. Violations from this stage are not stored on the Violations page.
+* *Deploy time* -- policy criteria evaluated when a workload is created or updated. Violations appear on the Violations page and can block deployment through the admission controller.
+* *Build and deploy time* -- the same policy applies in both the CI pipeline and at workload admission, with enforcement configurable for each stage independently.
+* *Runtime* -- policy criteria triggered by observed process activity, network connections, or system calls inside a running container. Violations carry forensic detail for incident response.
 
 **Why runtime forensic data matters:**
 
@@ -30,15 +32,15 @@ A runtime violation is not just something to resolve. It is evidence that a cont
 
 **What I say**:
 
-"The Violations page is the event stream for everything RHACS has detected. Let me show you what a deploy-time violation looks like and then a runtime violation, because they carry very different information."
+"The Violations page is the event stream for deploy-time and runtime findings. Build-time failures surface in your CI pipeline instead -- they never land here. Let me show you a deploy-time violation and then a runtime violation, because they carry very different information."
 
 **What I do**:
 
 . From the left side menu, navigate to *Violations*.
 
-. Point to the violations list:
+. Point to the violations list and the lifecycle filter:
 +
-"Every entry here is a specific instance of a policy criterion being met -- by an image, a deployment configuration, or a runtime process. This is a continuous stream, not a periodic report."
+"Every entry here is a specific instance of a policy criterion being met. You can filter by lifecycle stage: Build, Deploy, Build and Deploy, or Runtime. Build-time results appear in CI output; this page is where deploy-time and runtime violations accumulate."
 
 . Locate a violation for the *Fixable Severity at Least Important* policy and click it:
 +
@@ -56,10 +58,8 @@ A runtime violation is not just something to resolve. It is evidence that a cont
 
 . Click on the violation to open the detail view:
 +
-"Runtime violations carry a different set of details. You can see the process name, the arguments passed to it, the UID it ran under, the container ID, and the exact timestamp. This is the incident data your security operations team needs to triage the event."
+"Runtime violations carry a different set of details. You can see the process name, the arguments passed to it, the UID it ran under, the container ID, and the exact timestamp. This is the incident data your security operations team needs to triage the event.
 
-. Point to the resolution options:
-+
 "The team has options to resolve or suppress this notification. But the more important action is on the Policy tab."
 
 . Click the *Policy* tab at the top of the violation detail:
@@ -68,7 +68,8 @@ A runtime violation is not just something to resolve. It is evidence that a cont
 
 **What they should notice:**
 
-* Deploy-time and runtime violations carry different forensic data suited to their context
+* Policies span four lifecycle stages -- build, deploy, build and deploy, and runtime -- but the Violations page stores deploy-time and runtime events
+* Build-time enforcement stops bad images in CI before they are promoted; deploy-time and runtime enforcement catch what reaches the cluster
 * Runtime violations include process-level detail that maps directly to incident response workflows
 * The Guidance section converts a runtime alert into a specific, actionable Dockerfile improvement
 
@@ -76,14 +77,6 @@ A runtime violation is not just something to resolve. It is evidence that a cont
 ====
 **Presenter tip:** The "runtime incident as a learning opportunity" framing resonates strongly with security architects. It reframes alert fatigue -- instead of just managing a stream of notifications, teams are using each incident to permanently reduce attack surface in their images.
 ====
-
-image::04-violations-list.png[Violations page showing a mix of deploy-time and runtime policy violations,link=self,window=blank,width=700,title="Violations event stream"]
-
-// TODO: Capture screenshot of the Violations list
-
-image::04-violations-runtime-detail.png[Runtime violation detail for Ubuntu Package Manager Execution showing process name, arguments, UID, and container ID,link=self,window=blank,width=700,title="Runtime violation forensic detail"]
-
-// TODO: Capture screenshot of a runtime violation detail view
 
 == Part 2: The built-in policy library
 
@@ -93,7 +86,8 @@ _Context: RHACS ships with a library of policies built from Red Hat's security e
 
 **What the policy library provides:**
 
-* Build and deploy time policies that catch misconfigurations and vulnerable images before they reach production
+* Build-time policies that catch vulnerable images and Dockerfile issues in CI before promotion
+* Deploy-time policies that catch misconfigurations and vulnerable images at workload admission
 * Runtime policies that detect behaviors associated with attacker techniques: gaining a foothold, maintaining presence, moving laterally, and exfiltrating data
 * Rationale and guidance built into every policy so the development team understands why a policy exists and exactly what to change
 
@@ -133,7 +127,7 @@ The unified policy engine makes it straightforward to write policies with approp
 
 . Navigate back to the policy list and highlight the lifecycle column:
 +
-"Policies are tagged with the lifecycle stages they apply to: Build, Deploy, and Runtime. Other security tools require separate policy engines for each stage. RHACS uses one engine for all three, so you do not end up with inconsistent rules in different systems."
+"Policies are tagged with the lifecycle stages they apply to: Build, Deploy, Build and Deploy, and Runtime. A single policy can span multiple stages -- for example, the same CVE check in CI and again at admission. Other security tools require separate policy engines for each stage. RHACS uses one engine for all four."
 
 . Point to a policy that spans multiple lifecycle stages:
 +
@@ -149,14 +143,6 @@ The unified policy engine makes it straightforward to write policies with approp
 ====
 **Presenter tip:** The "we don't like package managers" line from the script lands well in a technical audience. It is a memorable way to explain the philosophy: containers should be immutable, minimal, and ship with exactly what they need. Package managers are the opposite of that principle.
 ====
-
-image::04-policy-library.png[Policy Management page showing the built-in policy library with lifecycle stage tags,link=self,window=blank,width=700,title="Policy library with lifecycle tags"]
-
-// TODO: Capture screenshot of the Policy Management list
-
-image::04-policy-detail-alpine.png[Alpine Package Manager policy showing Rationale and Guidance sections,link=self,window=blank,width=700,title="Policy detail with Rationale and Guidance"]
-
-// TODO: Capture screenshot of the Alpine Package Manager policy detail
 
 == Part 3: Policy enforcement and the admission controller
 
@@ -218,9 +204,9 @@ Enforcement does not have to wait for deploy time. When integrated with a CI/CD 
 * Developers receive actionable error messages, not opaque rejections
 * Build and deploy enforcement together create a two-stage gate that catches violations early and prevents any bypass
 
-[NOTE]
+[TIP]
 ====
-**Presenter tip:** The "programming OpenShift to prevent security risk" framing is effective with platform architects. It positions RHACS enforcement as a natural extension of the Kubernetes API machinery that the cluster already runs, rather than an external system that could conflict with or duplicate OpenShift's own admission logic.
+The "programming OpenShift to prevent security risk" framing is effective with platform architects. It positions RHACS enforcement as a natural extension of the Kubernetes API machinery that the cluster already runs, rather than an external system that could conflict with or duplicate OpenShift's own admission logic.
 ====
 
 [NOTE]
@@ -233,14 +219,3 @@ Enforcement does not have to wait for deploy time. When integrated with a CI/CD 
 **Transition:** With violations and policy management covered, we move to the Network Graph -- showing how RHACS visualizes observed traffic between deployments and generates Kubernetes Network Policies from the traffic baseline.
 ====
 
-image::04-policy-enforcement-actions.png[Policy behavior edit screen showing Inform and Enforce options with Build and Deploy enforcement switches,link=self,window=blank,width=700,title="Policy enforcement configuration"]
-
-// TODO: Capture screenshot of the Policy behavior Actions screen
-
-== Assets needed
-
-. `content/modules/ROOT/assets/images/04-violations-list.png` -- Violations page showing mixed deploy-time and runtime violations
-. `content/modules/ROOT/assets/images/04-violations-runtime-detail.png` -- Runtime violation detail with process name, arguments, UID, and container ID
-. `content/modules/ROOT/assets/images/04-policy-library.png` -- Policy Management list showing lifecycle stage tags
-. `content/modules/ROOT/assets/images/04-policy-detail-alpine.png` -- Alpine Package Manager policy detail with Rationale and Guidance
-. `content/modules/ROOT/assets/images/04-policy-enforcement-actions.png` -- Policy behavior Actions screen with Inform and Enforce selected

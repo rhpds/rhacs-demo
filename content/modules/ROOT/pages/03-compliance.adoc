@@ -38,21 +38,16 @@ Compliance is not a separate check. The controls RHACS evaluates are tied direct
 
 **What I do**:
 
-. From the left side menu, navigate to *Compliance* and select *Dashboard*.
+. From the left side menu, navigate to *Compliance* and select *OpenShift Coverage*.
 +
-NOTE: If no data is displayed, click *Scan environment* to trigger an initial scan.
-
-. Point to the *Passing Standards Across Clusters* graph in the upper left:
-+
-"This gives you the passing percentage for each standard across your connected clusters. A single number per standard is a starting point -- the value is in drilling down to see which specific controls are failing and why."
+NOTE: If no data is displayed, click *Scan environment* in the OpenShift Schedules tab to trigger an initial scan.
 
 . Point to the standards listed:
 +
-"RHACS ships with mappings for PCI-DSS, HIPAA, CIS Benchmarks, NIST SP 800-190, and STIG. These are the standards most regulated industries require, and each one maps controls to specific OpenShift configurations."
+"RHACS ships with mappings for PCI-DSS, HIPAA, CIS Benchmarks, NIST SP 800-190, DISA STIG, and more. These are the standards most regulated industries require, and each one maps controls to specific OpenShift configurations."
 
 **What they should notice:**
 
-* Compliance data is collected continuously, not on demand
 * Each standard shows an aggregate passing rate that links directly to detailed control-level findings
 * The same configuration gaps visible in the Risk view appear here as compliance failures
 
@@ -63,8 +58,6 @@ NOTE: If no data is displayed, click *Scan environment* to trigger an initial sc
 
 image::03-compliance-dashboard.png[Compliance dashboard showing passing percentages for PCI-DSS, HIPAA, CIS, and NIST standards,link=self,window=blank,width=700,title="Compliance dashboard overview"]
 
-// TODO: Capture screenshot of the compliance dashboard
-
 == Part 2: Standards and namespace breakdown
 
 === Know
@@ -73,59 +66,32 @@ _Context: An aggregate compliance score is only useful as an indicator. The oper
 
 **Translating traditional controls to Kubernetes:**
 
-* PCI-DSS Control 1.1.4 requires "a firewall at each Internet connection and between any demilitarized zone." In OpenShift, this requirement is satisfied by Kubernetes Network Policies.
-* A low compliance score on this control does not mean your organization lacks firewall capability -- it means deployments have not had Network Policies defined, leaving traffic flows unrestricted within the cluster.
 * RHACS provides guidance on the specific OpenShift configuration required to satisfy each control, making remediation actionable rather than interpretive.
-
-**Why namespace-level breakdown matters:**
-
-* Compliance gaps are not evenly distributed. A payments namespace may have tight controls while a development namespace is wide open.
-* Surfacing compliance by namespace allows platform teams to assign remediation to specific application teams, and allows security teams to prioritize audit focus on the highest-risk environments.
 
 === Show
 
 **What I say**:
 
-"Let me drill into PCI-DSS to show you what a specific control failure looks like and how RHACS connects it back to a concrete OpenShift fix."
+"Let me drill into Australians E8 to show you what a specific control failure looks like and how RHACS connects it back to a concrete OpenShift fix."
 
 **What I do**:
 
-. Click on *PCI*, or the PCI percentage bar, in the *Passing Standards Across Clusters* graph.
+. Click on *PCI*
 
-. Locate and click on *Control 1.1.4*, "Requirements for a firewall..."
+. Locate and click on *ocp4-e8-ocp-allowed-registries*, 
 +
-"PCI-DSS requires a firewall at each Internet connection and between network segments. In OpenShift, that translates to Kubernetes Network Policies. The compliance score here -- around 8% -- tells us that only a fraction of our deployments have correctly defined network policies. That is the specific gap."
+"Allowed registries should be configured to restrict the registries that the OpenShift container runtime can access, and all other registries should be blocked. That is the specific gap."
 
-. Point to the control guidance:
+. Click on production and point to the control guidance:
 +
 "RHACS provides the specific OpenShift configuration required to satisfy this control. It is not just a pass/fail verdict -- it is a pointer to the fix."
 
-. Navigate back to *Compliance > Dashboard* and click *Namespaces* in the top toolbar:
-+
-"Here you can see compliance broken down by namespace. Each row represents a namespace -- an application team or a business service. You can see immediately which teams have gaps and prioritize remediation conversations accordingly."
-
-. Point to a namespace with a low score:
-+
-"A low-scoring namespace in production is the first conversation to have. A low-scoring development namespace may be acceptable -- many teams intentionally run more permissive configurations in non-production environments."
+image::03-compliance-e8-allowed-registries.png[Compliance e8 allowed registries detail showing passing rate and guidance for OpenShift configuration,link=self,window=blank,width=700,title="Compliance e8 allowed registries detail"]
 
 **What they should notice:**
 
 * Control-level failures link directly to the specific Kubernetes resource that needs to be created or modified
-* Namespace-level breakdown converts a compliance score into a team-level accountability view
 * The same data supports both security team review and application team remediation
-
-[NOTE]
-====
-**Presenter tip:** The translation from PCI-DSS "firewall" to Kubernetes Network Policy is a useful discussion point. It demonstrates that RHACS has done the interpretive work that security and platform teams would otherwise spend weeks doing manually when they first tackle a compliance program for containerized workloads.
-====
-
-image::03-compliance-pci-control.png[PCI-DSS Control 1.1.4 detail showing passing rate and guidance for Network Policy configuration,link=self,window=blank,width=700,title="PCI-DSS control detail with remediation guidance"]
-
-// TODO: Capture screenshot of PCI-DSS control 1.1.4 detail
-
-image::03-compliance-namespaces.png[Compliance namespace view showing passing percentages per application team,link=self,window=blank,width=700,title="Compliance breakdown by namespace"]
-
-// TODO: Capture screenshot of namespace compliance breakdown
 
 == Part 3: Evidence export and scan scheduling
 
@@ -153,15 +119,13 @@ _Context: Compliance programs are only as credible as the evidence behind them. 
 
 **What I do**:
 
-. Navigate back to *Compliance > Dashboard*.
+. Navigate back to *Compliance > OpenShift Schedules*.
 
-. Click the *Export* button in the upper right and point to the *Evidence as CSV* option:
+. Click the *...* button to the right of the schedule and click generate download.
 +
 "This CSV export contains the full audit evidence set -- every control, every Kubernetes object evaluated, and the pass/fail verdict for each. This is what your auditors want. Not a summary, not a percentage -- the raw evidence that the required configurations are actually in place."
 
-. If available, reference the evidence spreadsheet structure:
-+
-"The spreadsheet has columns for the standard, the control, the cluster, the namespace, the object, and the result. An auditor can filter to their standard, spot any failures, and trace each one back to a specific deployment or configuration."
+TIP: If you have time, you can go through the compliance scheduling workflow below. Otherwise, you can skip to the next section.
 
 . Navigate to *Compliance* and select *Schedules* from the left side menu.
 
@@ -197,28 +161,12 @@ _Context: Compliance programs are only as credible as the evidence behind them. 
 * Scan schedules eliminate the manual effort of periodic compliance reviews
 * Reports are delivered automatically to the right people, reducing the coordination overhead before an audit
 
-[NOTE]
+[TIP]
 ====
-**Presenter tip:** If no notifier is configured when setting up the delivery destination, walk through creating one (email, Slack, or webhook). This is also an opportunity to mention that RHACS supports a range of notification targets, which connects naturally to the Integrations section later in the demo.
+If no notifier is configured when setting up the delivery destination, walk through creating one (email, Slack, or webhook). This is also an opportunity to mention that RHACS supports a range of notification targets, which connects naturally to the Integrations section later in the demo.
 ====
 
 [NOTE]
 ====
 **Transition:** Next we will cover Violations and Policy Management -- how RHACS records every policy breach, what forensic data is available for runtime incidents, and how the unified policy engine spans build, deploy, and runtime enforcement.
 ====
-
-image::03-compliance-evidence-export.png[Compliance dashboard showing the Export button and Evidence as CSV option,link=self,window=blank,width=700,title="Compliance evidence export"]
-
-// TODO: Capture screenshot of evidence export dialog
-
-image::03-compliance-scan-schedule.png[Compliance scan schedule creation wizard showing profile selection including CIS, PCI-DSS, and STIG,link=self,window=blank,width=700,title="Compliance scan schedule wizard"]
-
-// TODO: Capture screenshot of scan schedule wizard at the profile selection step
-
-== Assets needed
-
-. `content/modules/ROOT/assets/images/03-compliance-dashboard.png` -- Compliance dashboard with passing percentages for all standards
-. `content/modules/ROOT/assets/images/03-compliance-pci-control.png` -- PCI-DSS Control 1.1.4 detail page with remediation guidance
-. `content/modules/ROOT/assets/images/03-compliance-namespaces.png` -- Namespace compliance breakdown view
-. `content/modules/ROOT/assets/images/03-compliance-evidence-export.png` -- Export button and Evidence as CSV option
-. `content/modules/ROOT/assets/images/03-compliance-scan-schedule.png` -- Scan schedule wizard at profile selection step

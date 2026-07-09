@@ -65,10 +65,6 @@ For organizations that have already invested in vulnerability management platfor
 **Presenter tip:** For organizations with Quay already deployed, this is a natural connection point. Quay provides image storage and access control; RHACS adds vulnerability scanning, policy enforcement, and runtime monitoring. They are complementary, not competing.
 ====
 
-image::06-integrations-overview.png[Integrations page showing Image Integrations section with registry types,link=self,window=blank,width=700,title="Integrations page overview"]
-
-// TODO: Capture screenshot of the Integrations page
-
 == Part 2: Notification and SIEM integrations
 
 === Know
@@ -132,10 +128,6 @@ The webhook and syslog integrations ensure that RHACS is not limited to a fixed 
 **Presenter tip:** For organizations already running Splunk or QRadar as their primary SOC tool, the native SIEM integration is often the deciding factor in adoption. Security analysts do not want to learn a new console -- they want RHACS findings to appear in the dashboard they already monitor. Confirm that RHACS sends structured data that maps cleanly to common SIEM field formats.
 ====
 
-image::06-integrations-notifiers.png[Notifier Integrations section showing Slack, Splunk, ServiceNow, and other targets,link=self,window=blank,width=700,title="Notifier integrations overview"]
-
-// TODO: Capture screenshot of the Notifier Integrations section
-
 == Part 3: Software supply chain and authentication integrations
 
 === Know
@@ -197,13 +189,3 @@ For enterprise deployments, RHACS integrates with identity providers via OIDC an
 ====
 **Transition:** That covers the core integration surface. The final module covers Observability -- how RHACS metrics and monitoring data fit into your existing observability stack.
 ====
-
-image::06-integrations-supply-chain.png[Integrations page showing Signature Integrations section for Cosign configuration,link=self,window=blank,width=700,title="Signature integrations for supply chain security"]
-
-// TODO: Capture screenshot of the Signature Integrations section
-
-== Assets needed
-
-. `content/modules/ROOT/assets/images/06-integrations-overview.png` -- Integrations page showing Image Integrations section with registry types
-. `content/modules/ROOT/assets/images/06-integrations-notifiers.png` -- Notifier Integrations section showing available targets
-. `content/modules/ROOT/assets/images/06-integrations-supply-chain.png` -- Signature Integrations section for Cosign configuration
