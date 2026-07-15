@@ -37,7 +37,7 @@ For platform teams, RHACS integrates with OpenShift and the OpenShift console na
 
 . Open the RHACS console.
 +
-Access it from the *RHACS Console* tab in the right panel, or navigate directly to {acs_route}[window=blank].
+Navigate directly to {acs_route}[window=blank].
 . Log in using:
 +
 [cols="1,1"]
@@ -170,7 +170,7 @@ image::01-openshift-security-vulnerabilities.png[OpenShift console Security Vuln
 +
 "The Security tab on resource detail pages shows vulnerability information for that specific workload. That is the zero-context-switching story for {rhacs_version}: triage where you deploy, enforce where you operate."
 
-. Return to the RHACS console tab to continue the demo modules.
+. Return to the RHACS console to continue the demo modules.
 
 **What they should notice:**
 
@@ -242,4 +242,3 @@ image::01-openshift-console-persistence-dashboard.png[OpenShift console Perses d
 ====
 **Transition:** Next we dive into vulnerability management -- the first workflow most teams want to explore in depth.
 ====
-
