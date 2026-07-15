@@ -80,7 +80,7 @@ Access the OpenShift Console from the *OpenShift Console* tab in the right panel
 
 === RHACS Console
 
-Access the RHACS Console from the *RHACS Console* tab in the right panel, or open it directly: {acs_route}[window=blank]
+Open the RHACS Console directly: {acs_route}[window=blank]
 
 NOTE: Choose the standard *username* and *password* option, and NOT the monitoring login path.
 
