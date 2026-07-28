@@ -14,5 +14,5 @@ tabs:
 - name: Red Hat OpenShift Console
   url: 'https://console-openshift-console.${DOMAIN}'
 - name: Terminal
-  path: /terminal
+  path: /wetty
   port: 443
